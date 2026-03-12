@@ -5,26 +5,34 @@ The Clustering Toolbox available here was designed as a user interface that allo
 ## Ensemble Clustering combined with Clustering Optimization (ECCO)
 Ensemble clustering combined with Clustering Optimization or ECCO is the main functionality within the clustering toolbox. This form of ensemble clustering is discussed in our pre-print [pre-print](https://www.biorxiv.org/content/10.1101/2022.11.03.515009v1.abstract) and can be adapted for your preferences. ECCO is built for ensemble clustering solutions of agglomerative hierarcical clustering algorithms. 
 
+What is not included in the pre-print is related to the distance metrics of correlation square root (CS), correlation no square root (CNS), and pairwise (PW). The advantage of correlation metrics is that they weight inverse relationships and positive relationships equally due to the similarity of the pattern.
+
 ## Data Pre-processing notes
 The Clustering Toolbox was built to mimic the pre-processing steps taken during untargeted metabolomics data analysis. We acknowledge that we do not provide all of the available pre-processing steps and recommend pre-processing prior to submission to UI and selecting 'None' and 'None' when prompted to select a transformation and scaling for your data. 
 
 ## Installation and set-up
 
 #### Make sure to have python installed on the command line and that pip is installed for ease of implementation.
+
 1. If you do not have python installed, install at [python.org](https://www.python.org/) and make sure to install pip to your command line.
+   
 2. Otherwise, proceed to next steps.
 
 ### After Installation of python
-1. `git clone https://github.com/hisl6802/ECCO`
+1.  Install git if needed
+   - `conda install git`
+     
+2. - `git clone https://github.com/hisl6802/ECCO`
    - or Download zip file from the Code <> button above.
   
 2. **Recommended**: Create a Conda environment for running the UI (see example below)
-   - `conda create ECCO_env`
+   - `conda create --name ECCO_env`
    - `conda activate ECCO_env`
   
 3. After activating the environment use pip to install packages for UI
-   - `pip install -r requirements.txt`
-  
+   - `conda install --yes --file requirements.txt`
+           This will take a while
+     
 4. Start UI
    - `python JuneLabClusteringGUI.py`
    - or `python3 JuneLabClusteringGUI.py`  
@@ -32,7 +40,7 @@ The Clustering Toolbox was built to mimic the pre-processing steps taken during 
 **NOTE:** You may need to install openpyxl if you get file won't read errors. 
 
 ## Example Files
-The ExampleFiles directory contains **two example input files**. Please see further documentation for other input files. 
+The ExampleFiles directory contains **two example input files**. Please see documentation for other input files. 
 
 ## Troubleshooting
 Please submit an Issue in the Issues tab, and I will address as quickly as possible. 
