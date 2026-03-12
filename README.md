@@ -22,7 +22,7 @@ The Clustering Toolbox was built to mimic the pre-processing steps taken during 
 1.  Install git if needed
    - `conda install git`
      
-2. - `git clone https://github.com/hisl6802/ECCO`
+2. - `git clone git@github.com:kc032/JuneLabClusteringToolbox_fix.git`
    - or Download zip file from the Code <> button above.
   
 2. **Recommended**: Create a Conda environment for running the UI (see example below)
