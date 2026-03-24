@@ -47,7 +47,7 @@ class ValidationMetric:
             curClustersLength = len(curClusters)
 
             #sum of intra cluster distances
-            sumIntra = 0
+            sumIntra = 0.0
 
             #creating a dictionary of the dispersion of the cluster.
             dispersion = curClusters
@@ -61,7 +61,7 @@ class ValidationMetric:
                 cluster = curClusters[j]
 
                 #current sum of intra cluster distances
-                sumIntra = 0
+                sumIntra = 0.0
 
                 #determine whether the current cluster is a list or integer
                 if isinstance(cluster,list):
@@ -91,11 +91,12 @@ class ValidationMetric:
                         curMetab = clustCoordinates[k,:]
                         curDistIntra[0,:] = curMetab
                         curDistIntra[1,:] = center
-                        sumIntra += pdist(curDistIntra)
+                        # pdist returns shape (1,), use scalar value.
+                        sumIntra += float(pdist(curDistIntra)[0])
 
 
                     #calculating the dispersion of the current cluster of interest
-                    dispersion[j] = sumIntra/lengthList
+                    dispersion[j] = float(sumIntra / lengthList)
 
                 elif isinstance(cluster, np.integer) or isinstance(cluster, int):
                     #find center and place in dictionary
@@ -119,20 +120,23 @@ class ValidationMetric:
                 for j in range(curClustersLength):
                     if k != j:
                         #calculate the R_i and compare to the curMax
-                        R_i = (dispersion[k]+dispersion[j])/cenDists[k,j]
+                        denom = cenDists[k, j]
+                        if denom == 0:
+                            continue
+                        R_i = float((dispersion[k] + dispersion[j]) / denom)
                         
                         if R_i > curMax:
                             curMax = R_i
 
-                riMaxes[0,k] = curMax
+                riMaxes[0,k] = float(curMax)
 
             #sum up the R_i maxes and divide by the number of clusters in the current partition
-            sumRi = np.sum(riMaxes)
+            sumRi = float(np.sum(riMaxes))
             K = curClustersLength
 
             if K > 1:
                 #calculate the validation index
-                val_index[i,0] = sumRi/K
+                val_index[i,0] = float(sumRi / K)
                 val_index[i,1] = K
 
             else:
@@ -178,12 +182,13 @@ class ValidationMetric:
 
             #grab the current set of metabolite clusters
             curClusters = data[i]
+            cluster_items = list(curClusters.values()) if isinstance(curClusters, dict) else list(curClusters)
 
             #from the current clusters determine the length in order to determine the next step
-            curClustersLength = len(curClusters)
+            curClustersLength = len(cluster_items)
 
             #sum of intra cluster distances
-            sumIntra = 0
+            sumIntra = 0.0
 
             #creating a dictionary of the dispersion of the cluster.
             dispersion = curClusters
@@ -192,11 +197,11 @@ class ValidationMetric:
             centersNum = np.zeros((curClustersLength,num_groups))
 
             #create a numpy array for the maximum spread of points in cluster
-            maxIntra = np.zeros((curClustersLength,1))
+            maxIntra = np.zeros(curClustersLength, dtype=float)
 
             for j in range(curClustersLength):
                 #pull out the current cluster of metabolites
-                cluster = curClusters[j]
+                cluster = cluster_items[j]
                 #determine whether the current cluster is a list or integer
                 if isinstance(cluster,list):
                     #check the length of the cluster, get coordinates
@@ -220,7 +225,7 @@ class ValidationMetric:
                     intraDists = pdist(clustCoordinates)
 
                     #input the maximum intra cluster distance for the current cluster
-                    maxIntra[j] =  max(intraDists)
+                    maxIntra[j] = float(np.max(intraDists)) if intraDists.size > 0 else 0.0
 
                 elif isinstance(cluster, np.integer) or isinstance(cluster, int):
                     #find center and place in dictionary
@@ -229,19 +234,19 @@ class ValidationMetric:
                     centersNum[j,:] = center
 
                     #put the maximum intra distance as 0, only a single point (these will just be place holders)
-                    maxIntra[j] = 0
+                    maxIntra[j] = 0.0
 
 
             #calculate the max intra cluster spread
-            compactness = max(maxIntra)
+            compactness = float(np.max(maxIntra)) if maxIntra.size > 0 else 0.0
 
             #calculate the pairwise distances between cluster centers
             sepDists = pdist(centersNum)
 
             if curClustersLength > 1:
-                sepDist = min(sepDists)
+                sepDist = float(np.min(sepDists)) if sepDists.size > 0 else 0.0
                 #calculate the validation index
-                val_index[i,0] = sepDist/compactness
+                val_index[i,0] = float(sepDist / compactness) if compactness != 0 else 0.0
                 val_index[i,1] = curClustersLength
 
             else:
@@ -334,7 +339,8 @@ class ValidationMetric:
                         curMetab = clustCoordinates[k,:]
                         curDistIntra[0,:] = curMetab
                         curDistIntra[1,:] = center
-                        sumIntra += pdist(curDistIntra)
+                        # pdist returns shape (1,), use scalar value.
+                        sumIntra += float(pdist(curDistIntra)[0])
 
                 elif isinstance(cluster, np.integer) or isinstance(cluster,int):
                     #find the center and put it into the dictionary
@@ -349,7 +355,7 @@ class ValidationMetric:
             if curClustersLength > 1:
                 D = max(centerDists)
 
-                PBM = ((D/K)*(Eo/sumIntra))**2
+                PBM = float(((D / K) * (Eo / sumIntra))**2) if sumIntra != 0 else 0.0
             
                 val_index[0,0]=PBM
                 val_index[0,1]=K
@@ -400,18 +406,19 @@ class ValidationMetric:
             startTime = time.perf_counter()
             #grab the current set of metabolite clusters
             curClusters = data[i]
+            cluster_items = list(curClusters.values()) if isinstance(curClusters, dict) else list(curClusters)
 
             #from the current clusters determine the length in order to determine the next step
-            curClustersLength = len(curClusters)
+            curClustersLength = len(cluster_items)
 
             #sum of intra cluster distances
             sumIntra = 0
             
             #create a numpy array for that contains the cluster centers for calculation of the inter cluster distance.
-            coordinates = {}
+            coordinates = []
             for j in range(curClustersLength):
                 #get the current cluster
-                cluster = curClusters[j]
+                cluster = cluster_items[j]
 
                 #find all of the cluster centers and then advance to finding the silhouette Index
                 if isinstance(cluster,list):
@@ -426,12 +433,12 @@ class ValidationMetric:
 
 
                     #put clust coordinate into the dictionary.
-                    coordinates[j] = clustCoordinates
+                    coordinates.append(clustCoordinates)
 
                 elif isinstance(cluster,np.integer) or isinstance(cluster,int):
                     clustCoordinates = np.zeros((1,num_groups))
                     clustCoordinates[0,:] = dists[cluster]
-                    coordinates[j] = clustCoordinates
+                    coordinates.append(clustCoordinates)
             
 
             #loop thru each data feature within a cluster, and first get average intra-distance.
@@ -458,7 +465,7 @@ class ValidationMetric:
                         #setting b_x prior to its updated assignment to ensure no fail out once all data points are clustered together.
                         b_x = 0
                         for m in range(curClustersLength):
-                            if k != m:
+                            if j != m:
                                 #get the numpy array of other cluster, and add the data feature of interest from the other cluster to the top of the numpy array (i.e., row 0 for consistency)
                                 curArr = coordinates[m]
 

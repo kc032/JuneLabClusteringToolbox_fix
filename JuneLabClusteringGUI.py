@@ -1,2065 +1,1339 @@
 import logging
 import time
+from collections import defaultdict
 import getpass
 import os
+import tkinter as tk
+import multiprocessing
+import pandas as pd
+import webbrowser
+import config
+import GuiBackground as GB
 
 from tkinter import *
 from tkinter import ttk
 from tkinter import messagebox
 from tkinter import filedialog
-import tkinter as tk
-import multiprocessing
-import pandas as pd
-import fpdf
-import webbrowser
 from Bio.KEGG import REST
-import GuiBackground as GB
 from GUIUtils import GUIUtils as GU
-import config
+
+class CreateToolTip:
+    def __init__(self, widget, text=''):
+        self.widget = widget
+        self.text   = text
+        self.id     = None
+        self.tw     = None
+        widget.bind("<Enter>",       self.enter)
+        widget.bind("<Leave>",       self.leave)
+        widget.bind("<ButtonPress>", self.leave)
+
+    def enter(self, e=None):  self._schedule()
+    def leave(self, e=None):  self._unschedule(); self._hide()
+
+    def _schedule(self):
+        self._unschedule()
+        self.id = self.widget.after(500, self._show)
+
+    def _unschedule(self):
+        id_, self.id = self.id, None
+        if id_: self.widget.after_cancel(id_)
+
+    def _show(self, e=None):
+        x, y, *_ = self.widget.bbox("insert")
+        x += self.widget.winfo_rootx() + 25
+        y += self.widget.winfo_rooty() + 20
+        self.tw = tk.Toplevel(self.widget)
+        self.tw.wm_overrideredirect(True)
+        self.tw.wm_geometry(f"+{x}+{y}")
+        tk.Label(self.tw, text=self.text, justify='left',
+                 background="#ffffff", relief='solid', borderwidth=1,
+                 wraplength=200).pack(ipadx=1)
+
+    def _hide(self):
+        tw, self.tw = self.tw, None
+        if tw: tw.destroy()
+
+
 
 class JuneLabClusteringGUI(ttk.Frame):
-	def __init__(self, master=None):
-		super().__init__(master)
-		self.grid(column=0, row=0, sticky=(N, W, E, S))
-		self.rowconfigure(0, weight =2)
-		self.columnconfigure(1, weight =2)
-		self.columnconfigure(2, weight =2)
-		self.rowconfigure(1, weight = 2)
-		self.rowconfigure(2, weight = 2)
-		self.rowconfigure(3, weight = 2)
-		self.rowconfigure(4, weight = 2)
-		self.columnconfigure(3, weight=2)
-
-		self.startUpPage()
-
-	def startUpPage(self):
-		'''
-		Working on a new starting page to ensure that the user selects the appropriate number of threads, can input there name etc.
-		'''
-		self.style = ttk.Style()
-		self.style.configure("RW.TLabel", foreground="#f03d33",font=("TkHeadingFont",30))
-		self.style.configure("RW.TButton", padding=15, borderwidth=15, foreground="gray", background="#000000",font=("Arial",14))
-
-		numThreads = int(multiprocessing.cpu_count())
-		#set up the start up page.
-		self.GUILab = ttk.Label(self, text="GUI Set-Up",style="RW.TLabel").grid(column=0,row=0,columnspan=4)
-		self.NameLab = ttk.Label(self, text="Please input your name or a Project name:",font=("TkHeadingFont",16)).grid(column=2,row=1,sticky=(N,S,E,W),pady=10)
-		self.name = tk.StringVar()
-		self.threads = tk.StringVar()
-		self.entryName = ttk.Entry(self,textvariable=self.name).grid(column=2,row=2,sticky=(N,S,E,W),pady=3,padx=5)
-
-		self.ThreadsLab = ttk.Label(self, text="Number of threads:",font=("TkHeadingFont",16)).grid(column=2,row=3,sticky=(N,S,E,W),pady=1)
-		self.entryThreads = ttk.Entry(self,textvariable=self.threads).grid(column=2,row=4,sticky=(N,S,E,W), pady=1,padx = 5)
-		self.ThreadsULab = ttk.Label(self, text="You have "+str(numThreads)+ " available. (Using half or less is recommended.)",font=("TkHeadingFont",16)).grid(column=2,row=5,sticky=(N,S,E,W),pady=2)
-		self.dataPreprocessing = ttk.Button(self, text="Pre-Process", command=self.preprocess).grid(column=2,row=6,sticky=(N,S,E,W),columnspan=1)
-		self.getStarted = ttk.Button(self,text="Get Started!",command=self.create_widgets).grid(column=2, row=7,sticky=(N,S,E,W),columnspan=1)
-
-	def create_widgets(self):
-		'''
-		'''
-
-		#get the project name
-		name = self.name.get()
-		numThreads = self.threads.get()
-		try:
-			if int(numThreads) <= multiprocessing.cpu_count():
-				config.numThreads = int(numThreads)
-		except:
-			config.numThreads = 2
-			messagebox.showinfo(title="Number of Threads", message="You have been assigned 2 threads, since an invalid number of input threads was detected.")
-		#get the name for usgae in the log file name
-		config.name = name
-
-
-		#go to the appropriate directory and create log file string
-		log_time = time.strftime("%a_%b_%d_%Y_%H_%M_%S")
-		log_file = config.name + '_' + str(log_time) + '.log' 
-
-		logging.basicConfig(filename=log_file,format='%(asctime)s %(message)s',datefmt='%m/%d/%Y %I:%M:%S %p',level=logging.INFO)
-		logging.info('Started GUI')
-
-		objects = self.grid_slaves()
-		for i in objects:
-			i.destroy()
-		
-		#set the style for the widgets
-		self.style = ttk.Style()
-		self.style.configure("RW.TLabel", foreground="#f03d33",font=("TkHeadingFont",30))
-		self.style.configure("RW.TButton", padding=15, borderwidth=15, foreground="black", background="#000000",font=("Arial",14))
-
-		#Label for the clustering UI
-		self.GUILab = ttk.Label(self, text="Clustering Toolbox",style="RW.TLabel").grid(**config.grid_kwargs[0])
-		#create a button for the creation of a clustergram 
-		self.clust = ttk.Button(self,text="Create Clustergram",style="RW.TButton",command=self.createClustergram).grid(**config.grid_kwargs[1])
-		#Create a button to allow the user to compare the four most common linkage functions.
-		self.link = ttk.Button(self, text="Compare Linkage Functions", style="RW.TButton", command=self.linkages).grid(**config.grid_kwargs[2])
-		#create a button for mono-clustering validation
-		self.mumBot = ttk.Button(self,text="Clustering Optimization",style="RW.TButton",command=self.monoVal).grid(**config.grid_kwargs[3])
-		#Create a button to allow the user to do an Ensemble clustering on the data.
-		self.ensemble = ttk.Button(self,text="Ensemble Clustering", style="RW.TButton", command=self.ensemble).grid(**config.grid_kwargs[4])
-		#Create a button to allow the user to create the peaks to pathways files needed to analyze the peaks to pathways in Mummichog
-		self.peak = ttk.Button(self, text="Peaks to Pathways", style="RW.TButton", command=self.P2P).grid(**config.grid_kwargs[5])
-		#Create a button to allow the user to validate the appropriate number of clusters needed for a given set of metabolites.
-		self.val = ttk.Button(self, text="Compound Match-Up", style="RW.TButton", command=self.compound).grid(**config.grid_kwargs[6])
-		#Create a button to allow the user to create a medians file for better clustering results. 
-		self.med = ttk.Button(self, text="Group Medians", style="RW.TButton", command=self.medians).grid(**config.grid_kwargs[7])
-		#Create a button to allow the user to check the integrity of the data downloaded from Metaboanalysts Volcano plot results. 
-		self.integrity = ttk.Button(self, text="Data Integrity", style="RW.TButton", command=self.integrity).grid(**config.grid_kwargs[8])
-		#Create a button for the generation of a report
-		self.generate = ttk.Button(self,text='Selected Clusters Figure', style="RW.TButton", command=self.genSelClustFig).grid(**config.grid_kwargs[9])
-		#Create a button for the selection of clusters
-		self.selection = ttk.Button(self, text="Cluster Selection",style = "RW.TButton",command=self.clusterSelection).grid(**config.grid_kwargs[10])
-		#Create a button for the users to submit requests. 
-		self.heatmap = ttk.Button(self, text="Heatmap Analyses", style = "RW.TButton", command=self.heatmapAnalyses).grid(**config.grid_kwargs[11])
-		#create a button for the users to look-up enzymes
-		self.enzymeLU = ttk.Button(self,text="Enzyme Look Up", style="RW.TButton", command=self.enzymeLookUp).grid(**config.grid_kwargs[12])
-		#create a button for the users to bulid an anova-based heatmap
-		self.anHeatMap = ttk.Button(self,text="Build ANOVA Heatmap", style= "RW.TButton", command = self.anovaHeatMap).grid(**config.grid_kwargs[13])
-		#create a button for the users to create CIs from the metabolic t-test data.
-		self.tTestCIs = ttk.Button(self,text="CIs for t-tests", style="RW.TButton",command=self.CIsTtest).grid(**config.grid_kwargs[14])
-		#create a button for the user to ask for help.
-		self.Help = ttk.Button(self, text="Help/Documentation", style="RW.TButton", command=self.helpOut).grid(**config.grid_kwargs[15])
-		#create a button for the user to compare different inputs for normalization
-		self.normalityCheck = ttk.Button(self, text='Check Normality', style ="RW.TButton", command=self.normalityC).grid(**config.grid_kwargs[16])
-		#create a button for metaboanalyst file generation
-		self.metaboFileGen = ttk.Button(self,text="Metaboanalyst File Gen",style = "RW.TButton",command=self.mfg).grid(**config.grid_kwargs[17])
-		#create a button for using the MetaboAnalystBot
-		self.mBot = ttk.Button(self,text="MetaboBot",style="RW.TButton",command=self.metaboBot).grid(**config.grid_kwargs[18])
-		#create a button for using the MummichogBot
-		self.mumBot = ttk.Button(self,text="MummiBot",style="RW.TButton",command=self.mummiBot).grid(**config.grid_kwargs[19])
-		#Create a button to allow the user to create a minimum spanning tree on data
-		self.mst = ttk.Button(self,text='MST Optimization', style="RW.TButton", command=self.mst).grid(**config.grid_kwargs[20])
-		#create a button for mono-clustering validation
-		self.extVal = ttk.Button(self,text="External Metrics",style="RW.TButton",command=self.externalOpt).grid(**config.grid_kwargs[21])
-		#create a button for full optimized 
-		self.progenesis = ttk.Button(self,text="VIP (MS/MS Comp.)",style="RW.TButton",command=self.progen).grid(**config.grid_kwargs[22])
-		#create a button for the gene->pathways
-		self.geneToPath = ttk.Button(self,text="Gene->Pathways",style="RW.TButton",command=self.gene2path).grid(**config.grid_kwargs[23])
-
-		# pad each widget with 5 pixels on each side to ensure that the buttons do not stay together. 
-		for child in self.winfo_children(): child.grid_configure(padx=5, pady=5)
-
-	def home(self):
-		#start listing out the global variables that need to be removed for each function upon returning home
-		if 'ensemble' in globals():
-			try:
-				del(globals()['ensemble'])
-			except:
-				messagebox.showerror(title='Error', message="GUI didn't properly reset. Restart recommended, If you want to run another ensemble.")
-				logging.error(': Ensemble environment did not delete, this may cause errors in the computation of wanted ensemble clustergram!')
-			
-			if 'standard' in globals():
-				try:
-					del(globals()['standard'])
-				except:
-					messagebox.showerror(title='Error', message="GUI didn't properly reset. Restart recommended, IF you want to run another ensemble.")
-					logging.error(': Standard ensemble was selected but global variable didn''t delete this may cause issues with other ensemble clusterings!')
-
-		#remove old objects and put the home objects back on grid
-		objects = self.grid_slaves()
-		for i in objects:
-			i.grid_remove()
-		#get the widgets of interest and place back where they need to be.
-		widgets = self.winfo_children()
-		for i in range(len(config.grid_kwargs)):
-			#put the widgets back			
-			widgets[i].grid(**config.grid_kwargs[i])
-		
-		#add all the visual padding back to the widgets to aesthetics
-		count = -1
-		for child in self.winfo_children():
-			#add padding to the current widgets
-			count += 1
-			if count < len(config.grid_kwargs):
-				child.grid_configure(padx=5,pady=5)
-
-	def preprocess(self):
-		#ask the user to input the file of interest. 
-		filename = filedialog.askopenfilename()
-		metab_data = GB.fileCheck(file=filename)
-		metab_data_c = GB.fileCheck(file=filename)
-		metab_data_c = metab_data.drop(0,axis=0)
-		columns = list(metab_data_c.columns)
-
-		metab_data_c = metab_data_c.drop(columns[0],axis=1)
-		metab_data_c = metab_data_c.drop(columns[len(columns)-1],axis=1)
-
-		metab_data_c = metab_data_c.to_numpy()
-		
-		data, toDelete = GB.dataCheck(metab_data_c)
-		
-		for i in range(len(toDelete)):
-			toDelete[i] += 1
-		#drop the indicites that I need to delete
-		metab_data = metab_data.drop(toDelete)
-		#add back the row of labels.
-		# metab_data = pd.concat([m])
-		
-		metab_data.to_excel("pre_processed_data.xlsx",index=False)
-
-	def createClustergram(self):
-		def linkageOutput(*args):
-			#grab the current selection of the list
-			global selection
-			selection = distListBox.curselection()
-			curLink = linkageList[selection[0]]
-			if curLink == 'ward':
-				lenList = len(sampleListBox.get(0,tk.END))
-				if lenList > 0:
-					sampleListBox.delete(0,lenList-1)
-
-				sampleListBox.insert(0,distList[0])
-				
-				self.sampleListBox = sampleListBox
-				self.sampleListBox.grid(column=2,row=2,columnspan=1)
-			else:
-				lenList = len(sampleListBox.get(0,tk.END))
-				if lenList > 0:
-					sampleListBox.delete(0,lenList-1)
-
-				for i in range(len(distList)):
-					sampleListBox.insert(i,distList[i])
-
-				#bind the output back to the GUI.
-				self.sampleListBox = sampleListBox
-				self.sampleListBox.grid(column=2,row=2,columnspan=1)
-			return selection
-
-		def colorMap(*args):
-			global selection1
-			selection1 = sampleListBox.curselection()
-			#create a list of the color map options
-			lenList = len(colorListBox.get(0,tk.END))
-			if lenList > 0:
-				colorListBox.delete(0,lenList-1)
-
-			for i in range(len(colorList)):
-				colorListBox.insert(i,colorList[i])
-
-			#bind the output back to the GUI
-			self.colorListBox = colorListBox
-			self.colorListBox.grid(column=3,row=2,columnspan=1)
-			return selection1
-
-		def dataTransform(*args):
-			#dataTransform
-			global selection2
-			selection2 = colorListBox.curselection()
-
-			#put the data transform options into the list
-			lenList = len(transformListBox.get(0,tk.END))
-			if lenList > 0:
-				transformListBox.delete(0,lenList-1)
-
-			for i in range(len(transformList)):
-				transformListBox.insert(i,transformList[i])
-
-			self.transformListBox = transformListBox
-			self.transformListBox.grid(column=1,row=4,columnspan=1)
-			return selection2
-
-		def dataScale(*args):
-			#dataScaling
-			global selection3
-			selection3 = transformListBox.curselection()
-			
-			#put the data scaling optoins into the list
-			lenList = len(scaleListBox.get(0,tk.END))
-			if lenList > 0:
-				scaleListBox.delete(0,lenList-1)
-
-			for i in range(len(scaleList)):
-				scaleListBox.insert(i,scaleList[i])
-
-			self.scaleListBox = scaleListBox
-			self.scaleListBox.grid(column=2,row=4,columnspan=1)
-			return selection3
-
-		def dataNorm(*args):
-			#Does the user want to normalize to a column? 
-			global selection4
-			selection4 = scaleListBox.curselection()
-
-			#put the options into the list
-			#put the data scaling optoins into the list
-			lenList = len(normListBox.get(0,tk.END))
-			if lenList > 0:
-				normListBox.delete(0,lenList-1)
-
-			for i in range(len(normList)):
-				normListBox.insert(i,normList[i])
-
-			self.normListBox = normListBox
-			self.normListBox.grid(column=3,row=4,columnspan=1)
-
-
-		def submit(*args):
-			#submit the selections to the function output
-			selection5 = normListBox.curselection()
-
-			dist = distList[selection1[0]]
-			link = linkageList[selection[0]]
-			color = colorList[selection2[0]]
-			transform = transformList[selection3[0]]
-			scale = scaleList[selection4[0]]
-			norm = normList[selection5[0]]
-
-			if norm == 'Normalize':
-				scale = 'NormStand'
-				groupOrd = inputGroupOrder.get()
-				groupOrd = groupOrd.split(',')
-				GU.createClustergram(1,link,dist,color,colOrder=groupOrd, transform=transform,scale=scale)
-			else:
-				groupOrd = inputGroupOrder.get()
-				groupOrd = groupOrd.split(',')
-				norm = 0
-				if len(groupOrd) > 1:
-					norm =2
-
-				GU.createClustergram(norm,link,dist,color,colOrder=groupOrd, transform=transform,scale=scale)
-
-		def cmapO(*args):
-			#send users to webpage of 
-			webbrowser.open('https://matplotlib.org/stable/tutorials/colors/colormaps.html')
-
-		objects = self.grid_slaves()
-		for i in objects:
-			i.grid_forget()
-
-		#create widgets for the clustergram function input. 
-		self.JuneLab = ttk.Label(self, text="Clustergram Input",font=("TkHeadingFont",36)).grid(column=1,row=0,sticky=(N),columnspan=3)
-		self.Linkage = ttk.Label(self, text="Linkage",font=("TkHeadingFont",12)).grid(column=1,row=1,sticky=(N))
-		self.Distance = ttk.Label(self, text="Distance Measure",font=("TkHeadingFont",12)).grid(column=2,row=1,sticky=(N))
-		self.Color = ttk.Label(self,text="Color-Map", font=("TkHeadingFont",12)).grid(column=3,row=1,sticky=(N))
-		self.Transform = ttk.Label(self,text="Transform", font=("TkHeadingFont",12)).grid(column=1,row=3,sticky=(N))
-		self.Scale = ttk.Label(self,text="Scale",font=('TkHeadingFont',12)).grid(column=2,row=3,sticky=(N))
-		self.homepage = ttk.Button(self,text="Return to Home",command=self.home).grid(column=2, row=8,sticky=(N),columnspan=1)
-		self.submit = ttk.Button(self,text="Submit", command=submit).grid(column=2, row=7,sticky=(N),columnspan=1)
-		self.cmapW = ttk.Button(self,text="ColorMap Options", command=cmapO).grid(column=3,row=3,sticky=(N),columnspan=1)
-		self.gLab = ttk.Label(self,text="Group Order, normilization column first",font=('TkHeadingFont',12)).grid(column=1,row=5,columnspan=3)
-		inputGroupOrder = tk.StringVar()
-		self.inputGroups = ttk.Entry(self,textvariable=inputGroupOrder).grid(column=2,row=6,sticky=(N))
-		distListBox = Listbox(self,height=8)
-		sampleListBox = Listbox(self,height=8)
-		colorListBox = Listbox(self,height=8)
-		transformListBox = Listbox(self, height=8)
-		scaleListBox = Listbox(self, height=8)
-		normListBox = Listbox(self,height=8)
-		
-		#Create the lists of available options for selection 
-		linkageList = config.linkageList
-		distList = config.distList
-		colorList = config.colorList
-		transformList = config.transformList 
-		scaleList = config.scaleList 
-		normList = config.normList
-
-		
-		linkNames = StringVar(value=linkageList)
-		distNames = StringVar(value=distList)
-		colorNames = StringVar(value=colorList)
-		transformNames = StringVar(value=transformList)
-		scaleNames = StringVar(value=scaleList)
-		normNames = StringVar(value=normList)
-
-		
-		#input the linkage function values into the box
-		for i in range(len(linkageList)):
-			distListBox.insert(i,linkageList[i])
-
-		distListBox.bind('<Double-1>',linkageOutput)
-		sampleListBox.bind('<Double-1>',colorMap)
-		colorListBox.bind('<Double-1>',dataTransform)
-		transformListBox.bind('<Double-1>', dataScale)
-		scaleListBox.bind('<Double-1>',dataNorm)
-		self.distListBox = distListBox
-		self.distListBox.grid(column=1,row=2,columnspan=1)
-		self.sampleListBox = sampleListBox
-		self.sampleListBox.grid(column=2,row=2,columnspan=1)
-		self.colorListBox = colorListBox
-		self.colorListBox.grid(column=3,row=2,columnspan=1)
-		self.transformListBox = transformListBox
-		self.transformListBox.grid(column=1,row=4,columnspan=1)
-		self.scaleListBox = scaleListBox
-		self.scaleListBox.grid(column=2,row=4,columnspan=1)
-		self.normListBox = normListBox
-		self.normListBox.grid(column=3,row=4,columnspan=1)
-
-	def clusterSelection(self):
-		def linkageOutput(*args):
-			#grab the current selection of the list
-			global selection
-			selection = distListBox.curselection()
-			curLink = linkageList[selection[0]]
-			if curLink == 'ward':
-				lenList = len(sampleListBox.get(0,tk.END))
-				if lenList > 0:
-					sampleListBox.delete(0,lenList-1)
-
-				sampleListBox.insert(0,distList[0])
-				
-				self.sampleListBox = sampleListBox
-				self.sampleListBox.grid(column=2,row=2,columnspan=1)
-			else:
-				lenList = len(sampleListBox.get(0,tk.END))
-				if lenList > 0:
-					sampleListBox.delete(0,lenList-1)
-
-				for i in range(len(distList)):
-					sampleListBox.insert(i,distList[i])
-
-				#bind the output back to the GUI.
-				self.sampleListBox = sampleListBox
-				self.sampleListBox.grid(column=2,row=2,columnspan=1)
-			return selection
-
-		def colorMap(*args):
-			global selection1
-			selection1 = sampleListBox.curselection()
-			#create a list of the color map options
-			lenList = len(colorListBox.get(0,tk.END))
-			if lenList > 0:
-				colorListBox.delete(0,lenList-1)
-
-			for i in range(len(colorList)):
-				colorListBox.insert(i,colorList[i])
-
-			#bind the output back to the GUI
-			self.colorListBox = colorListBox
-			self.colorListBox.grid(column=3,row=2,columnspan=1)
-			return selection1
-
-		def dataTransform(*args):
-			#dataTransform
-			global selection2
-			selection2 = colorListBox.curselection()
-
-			#put the data transform options into the list
-			lenList = len(transformListBox.get(0,tk.END))
-			if lenList > 0:
-				transformListBox.delete(0,lenList-1)
-
-			for i in range(len(transformList)):
-				transformListBox.insert(i,transformList[i])
-
-			self.transformListBox = transformListBox
-			self.transformListBox.grid(column=1,row=4,columnspan=1)
-			return selection2
-
-		def dataScale(*args):
-			#dataScaling
-			global selection3
-			selection3 = transformListBox.curselection()
-			#put the data scaling optoins into the list
-			lenList = len(scaleListBox.get(0,tk.END))
-			if lenList > 0:
-				scaleListBox.delete(0,lenList-1)
-
-			for i in range(len(scaleList)):
-				scaleListBox.insert(i,scaleList[i])
-
-			self.scaleListBox = scaleListBox
-			self.scaleListBox.grid(column=2,row=4,columnspan=1)
-			
-			return selection3
-
-		def dataNorm(*args):
-			#Does the user want to normalize to a column? 
-			global selection4
-			selection4 = scaleListBox.curselection()
-
-			#put the options into the list
-			#put the data scaling optoins into the list
-			lenList = len(normListBox.get(0,tk.END))
-			if lenList > 0:
-				normListBox.delete(0,lenList-1)
-
-			for i in range(len(normList)):
-				normListBox.insert(i,normList[i])
-
-			self.normListBox = normListBox
-			self.normListBox.grid(column=3,row=4,columnspan=1)
-			self.submit.grid(column=3, row=8,sticky=(N),columnspan=1)
-
-
-		def submit(*args):
-			#submit the function output to the
-			norm = normListBox.curselection()
-			dist = distList[selection1[0]]
-			link = linkageList[selection[0]]
-			color = colorList[selection2[0]]
-			transform = transformList[selection3[0]]
-			scale = scaleList[selection4[0]]
-			norm = normList[norm[0]]
-
-			#set the config colorNum to zero
-			config.colorNum = 0
-			if norm == 'Normalize':
-				groupOrd = inputGroupOrderCS.get()
-				groupOrd = groupOrd.split(',')
-				scale ='NormStand'
-				GU.selectClusters(link,dist,1,colOrder=groupOrd,transform=transform, scale=scale,cmap=color)
-			else:
-				GU.selectClusters(link,dist,transform=transform, scale=scale,cmap=color)
-
-
-
-		def cmapO(*args):
-			#send users to webpage of 
-			webbrowser.open('https://matplotlib.org/stable/tutorials/colors/colormaps.html')
-
-		objects = self.grid_slaves()
-		for i in objects:
-			i.grid_forget()
-
-
-		
-		#create widgets for the clustergram function input. 
-		self.JuneLab = ttk.Label(self, text="Clustergram Input",font=("TkHeadingFont",36)).grid(column=1,row=0,sticky=(N),columnspan=3)
-		self.Linkage = ttk.Label(self, text="Linkage",font=("TkHeadingFont",12)).grid(column=1,row=1,sticky=(N))
-		self.Distance = ttk.Label(self, text="Distance Measure",font=("TkHeadingFont",12)).grid(column=2,row=1,sticky=(N))
-		self.Color = ttk.Label(self,text="Color-Map", font=("TkHeadingFont",12)).grid(column=3,row=1,sticky=(N))
-		self.Transform = ttk.Label(self,text="Transform", font=("TkHeadingFont",12)).grid(column=1,row=3,sticky=(N))
-		self.Scale = ttk.Label(self,text="Scale",font=('TkHeadingFont',12)).grid(column=2,row=3,sticky=(N))
-		self.homepage = ttk.Button(self,text="Return to Home",command=self.home).grid(column=2, row=8,sticky=(N),columnspan=1)
-		self.submit = ttk.Button(self,text="Submit", command=submit)
-		self.cmapW = ttk.Button(self,text="ColorMap Options", command=cmapO).grid(column=1,row=8,sticky=(N),columnspan=1)
-		self.groupsLAb = ttk.Label(self,text="Group Order, normilization column first",font=('TkHeadingFont',12)).grid(column=2,row=6,sticky=(N))
-		inputGroupOrderCS = tk.StringVar()
-		self.inputGroups = ttk.Entry(self,textvariable=inputGroupOrderCS).grid(column=2,row=7,sticky=(N))
-		distListBox = Listbox(self,height=8)
-		sampleListBox = Listbox(self,height=8)
-		colorListBox = Listbox(self,height=8)
-		transformListBox = Listbox(self, height=8)
-		scaleListBox = Listbox(self, height=8)
-		normListBox = Listbox(self, height=8)
-		
-		#Create the lists of available options for selection 
-		linkageList = ('single','ward','complete','average')
-		distList = ('euclidean','seuclidean','sqeuclidean','cosine','chebyshev','correlation','canberra','braycurtis','minkowski','cityblock')
-		colorList = ('viridis', 'plasma', 'inferno', 'magma', 'cividis','Greys', 'Purples', 'Blues', 'Greens', 'Oranges', 'Reds',
-                      'YlOrBr', 'YlOrRd', 'OrRd', 'PuRd', 'RdPu', 'BuPu',
-                      'GnBu', 'PuBu', 'YlGnBu', 'PuBuGn', 'BuGn', 'YlGn','Greys', 'Purples', 'Blues', 'Greens', 'Oranges', 'Reds',
-                      'YlOrBr', 'YlOrRd', 'OrRd', 'PuRd', 'RdPu', 'BuPu',
-                      'GnBu', 'PuBu', 'YlGnBu', 'PuBuGn', 'BuGn', 'YlGn','PiYG', 'PRGn', 'BrBG', 'PuOr', 'RdGy', 'RdBu', 'RdYlBu',
-                      'RdYlGn', 'Spectral', 'coolwarm', 'bwr', 'seismic','twilight', 'twilight_shifted', 'hsv')
-		transformList = ('None','Log transformation', 'Square root transformation', 'Cube root transformation')
-		scaleList = ('None', 'Mean centering', 'Auto Scaling', 'Pareto Scaling', 'Range Scaling')
-		normList = config.normList
-
-		
-		linkNames = StringVar(value=linkageList)
-		distNames = StringVar(value=distList)
-		colorNames = StringVar(value=colorList)
-		transformNames = StringVar(value=transformList)
-		scaleNames = StringVar(value=scaleList)
-		normNames  = StringVar(value=normListBox)
-
-		
-		#input the linkage function values into the box
-		for i in range(len(linkageList)):
-			distListBox.insert(i,linkageList[i])
-
-		distListBox.bind('<Double-1>',linkageOutput)
-		sampleListBox.bind('<Double-1>',colorMap)
-		colorListBox.bind('<Double-1>',dataTransform)
-		transformListBox.bind('<Double-1>', dataScale)
-		scaleListBox.bind('<Double-1>', dataNorm)
-		self.distListBox = distListBox
-		self.distListBox.grid(column=1,row=2,columnspan=1)
-		self.sampleListBox = sampleListBox
-		self.sampleListBox.grid(column=2,row=2,columnspan=1)
-		self.colorListBox = colorListBox
-		self.colorListBox.grid(column=3,row=2,columnspan=1)
-		self.transformListBox = transformListBox
-		self.transformListBox.grid(column=1,row=4,columnspan=1)
-		self.scaleListBox = scaleListBox
-		self.scaleListBox.grid(column=2,row=4,columnspan=1)
-		self.normListBox =normListBox
-		self.normListBox.grid(column=3,row=4,columnspan=1)
-
-	def medians(self):
-		global rmZeros
-		#function to 
-		def groupMedians(*args):
-			rmZeros = var1.get()
-			GU.groupMedians(rmZeros=rmZeros)
-		#get rid of the objects in GUI window.
-		objects = self.grid_slaves()
-		for i in objects:
-			i.grid_forget()
-
-		#create widgets for the group medians.
-		self.GroupLab = ttk.Label(self, text="Group Medians", font=("TkHeadingFont",36)).grid(column=1,row=0,sticky=(N),columnspan=2)
-		self.homeGroup = ttk.Button(self,text="Return to Home",command=self.home).grid(column=1,row=4,sticky=(N),columnspan=2)
-		var1 = IntVar()
-		self.zeroRemove = ttk.Checkbutton(self,text="Remove Zeros?",variable=var1).grid(column=1,row=2,sticky=(N),columnspan=2)
-		self.GM = ttk.Button(self,text="Select file",command=groupMedians).grid(column=1,row=3,sticky=(N),columnspan=2)
-
-
-	def linkages(self):
-		def distFunc(*args):
-			#make a global distance variable
-			global distanceMet
-			distanceMet = self.dist.get()
-			
-			#given the selection of a distance measure how many comparisons are possible. 
-			if distanceMet == 'euclidean':
-				#give the full list to the second combobox
-				values = [1,2,3,4]
-				num_comps = StringVar()
-				self.numComps = ttk.Combobox(self,values=values,textvariable=num_comps)
-			else:
-				#give only three values to the second combobox
-				values = [1,2,3]
-				num_comps = StringVar()
-				self.numComps = ttk.Combobox(self,values=values,textvariable=num_comps)
-			
-			#place the combobox on the GUI
-			self.numComps.bind('<<ComboboxSelected>>', numCompsFunc)
-			self.numComps.grid(column=2,row=2)
-		
-		def numCompsFunc(*args):
-			#make a numberComps global variable
-			global numberComps
-			numberComps = self.numComps.get()
-
-			#create a list of linkage options
-			linkOpts = ['ward-single','ward-complete','ward-average','single-complete','single-average','complete-average',\
-						'ward-single-complete','ward-single-average','ward-complete-average','single-complete-average',\
-						'ward-single-complete-average']
-			
-			if numberComps == '1':
-				#give the linkage funtions combobox a list of the linkage functions. 
-				linkages = ['ward','single','complete','average']
-
-				#check for the euclidean measure again.
-				if distanceMet == 'euclidean':
-					#give the values of linkages[1:3]
-					value = linkages
-					linkage = StringVar()
-					self.linkage = ttk.Combobox(self,values=value,textvariable=linkage)
-				else:
-					value = linkages[1:]
-					linkage = StringVar()
-					self.linkage = ttk.Combobox(self,values = value,textvariable=linkage)
-
-				#bind and place the combobox on the GUI
-				self.linkage.bind('<<ComboboxSelected>>', linkageComp)
-				self.linkage.grid(column=3,row=2)
-
-			elif numberComps == '2':
-				#give the linkage functions combobox a subset based upon distance measure. 
-				if distanceMet == 'euclidean':
-					#give the list values from 0 to 5
-					value = linkOpts[0:6]
-					linkage = StringVar()
-					self.linkage = ttk.Combobox(self,values=value,textvariable=linkage)
-
-				else:
-					#give the list values from 3 to 5
-					value = linkOpts[3:6]
-					linkage = StringVar()
-					self.linkage = ttk.Combobox(self,values=value,textvariable=linkage)
-				
-				#bind and place the combobox on the GUI
-				self.linkage.bind('<<ComboboxSelected>>', linkageComp)
-				self.linkage.grid(column=3,row=2)
-
-			elif numberComps == '3':
-				#give the linkage functions combobox a subset based upon distance measure. 
-				if distanceMet == 'euclidean':
-					#give the list values from 0 to 5
-					value = linkOpts[6:10]
-					linkage = StringVar()
-					self.linkage = ttk.Combobox(self,values=value,textvariable=linkage)
-
-				else:
-					#give the list values from 3 to 5
-					value = linkOpts[9]
-					linkage = StringVar()
-					self.linkage = ttk.Combobox(self,values=value,textvariable=linkage)
-				
-				#bind and place the combobox on the GUI
-				self.linkage.bind('<<ComboboxSelected>>', linkageComp)
-				self.linkage.grid(column=3,row=2)
-
-			elif numberComps == '4':
-				#give the list values from 3 to 5
-				value = linkOpts[10]
-				linkage = StringVar()
-				self.linkage = ttk.Combobox(self,values=value,textvariable=linkage)
-				
-				#bind and place the combobox on the GUI
-				self.linkage.bind('<<ComboboxSelected>>', linkageComp)
-				self.linkage.grid(column=3,row=2)
-
-		def linkageComp(*args):
-			#base linkage list for 4 comparisons.
-			global linkList
-			linkageList = ['ward','single','complete','average']
-			
-			#create an empty list for linkage functions
-			linkList = []
-
-			#count the number of dashes in the string from combobox
-			selection = self.linkage.get()
-			locs = []
-			for i in range(len(selection)):
-				#find the dash locations
-				if selection[i] == '-':
-					locs.append(i)
-
-			if len(locs) > 0:
-				firstLetter = 0
-				for i in range(len(selection)):
-					#check vthe current string value for '-'
-					if selection[i] == '-':
-						lastLetter = i
-						#get current linkage
-						curLink = selection[firstLetter:lastLetter]
-						linkList.append(curLink)
-						firstLetter = i+1
-					elif i == len(selection)-1:
-						lastLetter = i+1
-						curLink = selection[firstLetter:lastLetter]
-						linkList.append(curLink)
-
-			else:
-				#append the selection to the linkage list
-				linkList.append(selection)
-			lenList = len(transformListBox.get(0,tk.END))
-			if lenList > 0:
-				transformListBox.delete(0,lenList-1)
-			#send the parameters for linkage comparison 
-			for i in range(len(transformList)):
-				transformListBox.insert(i,transformList[i])	
-
-		def dataScale(*args):
-			global dataTrans
-			dataTrans = transformListBox.curselection()
-			dataTrans = transformList[dataTrans[0]]
-			lenList = len(scaleListBox.get(0,tk.END))
-			if lenList > 0:
-				scaleListBox.delete(0,lenList-1)
-
-			for i in range(len(scaleList)):
-				scaleListBox.insert(i,scaleList[i])
-			
-		def submit(*args):
-			#get current selection of the scaling list box
-			dataScale = scaleListBox.curselection()
-			dataScale = scaleList[dataScale[0]]
-
-			file = filedialog.askopenfilename()
-			GU.linkageComparison(file, numberComps,linkList,distanceMet,dataTrans,dataScale)
-
-
-		objects = self.grid_slaves()
-		for i in objects:
-			i.grid_forget()
-
-		#create a list of values from 1 to 4
-		numLinkComps = [1,2,3,4]
-
-		#create widgets for the clustergram function input. 
-		self.JuneLab = ttk.Label(self, text="Linkage Comparison",font=("TkHeadingFont",36)).grid(column=1,row=0,sticky=(N),columnspan=3)
-		self.numCompsLab = ttk.Label(self, text="Number of comparisons",font=("TkHeadingFont",12)).grid(column=2,row=1)
-		self.distLab = ttk.Label(self, text="Distance measure",font=("TkHeadingFont",12)).grid(column=1,row=1)
-		self.linkLab = ttk.Label(self,text="Linkage functions",font=("TkHeadingFont",12)).grid(column=3,row=1)
-		self.Transform = ttk.Label(self,text="Transform",font=("TkHeadingFont",12)).grid(column=1,row=4)
-		self.Scale = ttk.Label(self,text="Scale",font=("TkHeadingFont",12)).grid(column=2,row=4)
-		self.home1 = ttk.Button(self,text="Return to Home",command=self.home).grid(column=1,row=7, sticky=(N),columnspan=3)
-		self.sumbitIt = ttk.Button(self,text="Submit",command=submit).grid(column=1,row=6, sticky=(N),columnspan=3)
-		
-		transformListBox = Listbox(self, height=8)
-		scaleListBox = Listbox(self, height=8)
-
-		linkages = StringVar()
-		#create the distance measure combobox first, then update the GUI as the user selects the distance, measure than number of linkage comps. 
-		distances = StringVar()
-		distList = ('euclidean','seuclidean','sqeuclidean','cosine','chebyshev','correlation','canberra','braycurtis','minkowski','cityblock')
-		transformList = ('None','Log transformation', 'Square root transformation', 'Cube root transformation')
-		scaleList = ('None', 'Mean centering', 'Auto Scaling', 'Pareto Scaling', 'Range Scaling')
-		self.dist = ttk.Combobox(self,values = distList,textvariable=distances)
-
-
-		
-		#bind the combobox for distance measures to the selection of distance measure. 
-		self.dist.bind('<<ComboboxSelected>>', distFunc)
-		self.dist.grid(column=1,row=2)
-		transformListBox.bind('<Double-1>', dataScale)
-		scaleNames = StringVar(value=scaleList)
-		self.transformListBox = transformListBox
-		self.transformListBox.grid(column=1,row=5,columnspan=1)
-		self.scaleListBox = scaleListBox
-		self.scaleListBox.grid(column=2,row=5,columnspan=1)
-
-	def heatmapAnalyses(self):
-		def linkageOutput(*args):
-			#grab the current selection of the list
-			global selection
-			selection = distListBox.curselection()
-			curLink = linkageList[selection[0]]
-			if curLink == 'ward':
-				lenList = len(sampleListBox.get(0,tk.END))
-				if lenList > 0:
-					sampleListBox.delete(0,lenList-1)
-
-				sampleListBox.insert(0,distList[0])
-				
-				self.sampleListBox = sampleListBox
-				self.sampleListBox.grid(column=2,row=2,columnspan=1)
-			else:
-				lenList = len(sampleListBox.get(0,tk.END))
-				if lenList > 0:
-					sampleListBox.delete(0,lenList-1)
-
-				for i in range(len(distList)):
-					sampleListBox.insert(i,distList[i])
-
-				#bind the output back to the GUI.
-				self.sampleListBox = sampleListBox
-				self.sampleListBox.grid(column=2,row=2,columnspan=1)
-			return selection
-
-		def cmapO(*args):
-			#send users to webpage of 
-			webbrowser.open('https://matplotlib.org/stable/tutorials/colors/colormaps.html')
-
-		def colorMap(*args):
-			global selection1
-			selection1 = sampleListBox.curselection()
-			#create a list of the color map options
-			lenList = len(colorListBox.get(0,tk.END))
-			if lenList > 0:
-				colorListBox.delete(0,lenList-1)
-
-			for i in range(len(colorList)):
-				colorListBox.insert(i,colorList[i])
-
-			#bind the output back to the GUI
-			self.colorListBox = colorListBox
-			self.colorListBox.grid(column=3,row=2,columnspan=1)
-			return selection1
-
-		def dataTransform(*args):
-			#dataTransform
-			global selection2
-			selection2 = colorListBox.curselection()
-
-			#put the data transform options into the list
-			lenList = len(transformListBox.get(0,tk.END))
-			if lenList > 0:
-				transformListBox.delete(0,lenList-1)
-
-			for i in range(len(transformList)):
-				transformListBox.insert(i,transformList[i])
-
-			self.transformListBox = transformListBox
-			self.transformListBox.grid(column=1,row=4,columnspan=1)
-			return selection2
-
-		def dataScale(*args):
-			#dataScaling
-			global selection3
-			selection3 = transformListBox.curselection()
-			#put the data scaling optoins into the list
-			lenList = len(scaleListBox.get(0,tk.END))
-			if lenList > 0:
-				scaleListBox.delete(0,lenList-1)
-
-			for i in range(len(scaleList)):
-				scaleListBox.insert(i,scaleList[i])
-
-			self.scaleListBox = scaleListBox
-			self.scaleListBox.grid(column=2,row=4,columnspan=1)
-			
-			return selection3
-
-		def dataNorm(*args):
-			global selection4
-			selection4 = scaleListBox.curselection()
-			selection4 = scaleListBox.curselection()
-
-			#put the options into the list
-			#put the data scaling optoins into the list
-			lenList = len(normListBox.get(0,tk.END))
-			if lenList > 0:
-				normListBox.delete(0,lenList-1)
-
-			for i in range(len(normList)):
-				normListBox.insert(i,normList[i])
-
-			self.normListBox = normListBox
-			self.normListBox.grid(column=3,row=4,columnspan=1)
-			self.submit.grid(column=3, row=8,sticky=(N),columnspan=1)
-
-		def submit(*args):
-			#submit the function output to the 
-			norm = normListBox.curselection()
-			dist = distList[selection1[0]]
-			link = linkageList[selection[0]]
-			color = colorList[selection2[0]]
-			transform = transformList[selection3[0]]
-			scale = scaleList[selection4[0]]
-			norm = normList[norm[0]]
-
-			if norm == 'Normalize':
-				scale = 'NormStand'
-				groupOrd = inputGroupOrderHM.get()
-				groupOrd = groupOrd.split(',')
-				GU.heatmapAnalysis(link,dist,color,1,colOrder=groupOrd,transform=transform,scale=scale)
-			else: 
-				GU.heatmapAnalysis(link,dist,color,0,transform=transform,scale=scale)
-
-		objects = self.grid_slaves()
-		for i in objects:
-			i.grid_forget()
-		
-
-		#create widgets for the clustergram function input. 
-		self.JuneLab = ttk.Label(self, text="Heatmap Input",font=("TkHeadingFont",36)).grid(column=1,row=0,sticky=(N),columnspan=3)
-		self.Linkage = ttk.Label(self, text="Linkage",font=("TkHeadingFont",12)).grid(column=1,row=1,sticky=(N))
-		self.Distance = ttk.Label(self, text="Distance Measure",font=("TkHeadingFont",12)).grid(column=2,row=1,sticky=(N))
-		self.Color = ttk.Label(self,text="Color-Map", font=("TkHeadingFont",12)).grid(column=3,row=1,sticky=(N))
-		self.Transform = ttk.Label(self,text="Transform", font=("TkHeadingFont",12)).grid(column=1,row=3,sticky=(N))
-		self.Scale = ttk.Label(self,text="Scale",font=('TkHeadingFont',12)).grid(column=2,row=3,sticky=(N))
-		self.homepage = ttk.Button(self,text="Return to Home",command=self.home).grid(column=2, row=8,sticky=(N),columnspan=1)
-		self.submit = ttk.Button(self,text="Submit", command=submit)
-		self.cmapW = ttk.Button(self,text="ColorMap Options", command=cmapO).grid(column=1,row=8,sticky=(N),columnspan=1)
-		self.normLab = ttk.Label(self,text="Normalize?", font=("TkHeadingFont",12)).grid(column=3,row=3,sticky=(N))
-		self.GroupLab = ttk.Label(self,text="Group Order, normilization column first", font=("TkHeadingFont",12)).grid(column=1,row=5,sticky=(N),columnspan=3)
-		inputGroupOrderHM = tk.StringVar()
-		self.inputGroupsHM = ttk.Entry(self,textvariable=inputGroupOrderHM).grid(column=2,row=6,sticky=(N))
-		distListBox = Listbox(self,height=8)
-		sampleListBox = Listbox(self,height=8)
-		colorListBox = Listbox(self,height=8)
-		transformListBox = Listbox(self, height=8)
-		scaleListBox = Listbox(self, height=8)
-		normListBox = Listbox(self,height=8)
-		
-		#Create the lists of available options for selection 
-		linkageList = config.linkageList
-		distList = config.distList
-		colorList = config.colorList
-		transformList = config.transformList
-		scaleList = config.scaleList
-		normList = config.normList
-
-
-		linkNames = StringVar(value=linkageList)
-		distNames = StringVar(value=distList)
-		colorNames = StringVar(value=colorList)
-		transformNames = StringVar(value=transformList)
-		scaleNames = StringVar(value=scaleList)
-		normNames = StringVar(value=normList)
-
-		
-		#input the linkage function values into the box
-		for i in range(len(linkageList)):
-			distListBox.insert(i,linkageList[i])
-
-		distListBox.bind('<Double-1>',linkageOutput)
-		sampleListBox.bind('<Double-1>',colorMap)
-		colorListBox.bind('<Double-1>',dataTransform)
-		transformListBox.bind('<Double-1>', dataScale)
-		scaleListBox.bind('<Double-1>', dataNorm)
-		self.distListBox = distListBox
-		self.distListBox.grid(column=1,row=2,columnspan=1)
-		self.sampleListBox = sampleListBox
-		self.sampleListBox.grid(column=2,row=2,columnspan=1)
-		self.colorListBox = colorListBox
-		self.colorListBox.grid(column=3,row=2,columnspan=1)
-		self.transformListBox = transformListBox
-		self.transformListBox.grid(column=1,row=4,columnspan=1)
-		self.scaleListBox = scaleListBox
-		self.scaleListBox.grid(column=2,row=4,columnspan=1)
-		self.normListBox = normListBox
-		self.normListBox.grid(column=3,row=4,columnspan=1)
-
-
-	def compound(self):
-	    #ask the user to select a clustergram file to run through a validition study.
-	    #Waiting on confirmation...
-		def allCompounds(*args):
-			GU.compoundMatchUp(typeFile='all')
-
-		def enrichment(*args):
-			GU.compoundMatchUp(typeFile='enrich')
-
-		def compLookUp(*args):
-			logging.info(': Looking up a compound!')
-			#updating the GUI to allow user to input data
-			objects = self.grid_slaves()
-			for i in objects:
-				i.grid_forget()
-			global lookUp
-			lookUp = 'comp'
-
-			self.compLabel = ttk.Label(self, text="Compound Look-Up", font=("TkHeadingFont",36)).grid(column=1,row=0,sticky=(N))
-			global inputLab1
-			inputLab1 = tk.StringVar()
-			self.inputLab = ttk.Entry(self,textvariable=inputLab1).grid(column=1,row=1,sticky=(N))
-			global formulaBox
-			global exactMassBox
-			global molWeightBox
-			formulaBox = tk.StringVar()
-			exactMassBox = tk.StringVar()
-			molWeightBox = tk.StringVar()
-			self.ex = ttk.Label(self,text="Input one of the following:",font=("TkHeadingFont",16)).grid(column=1,row=2,sticky=(N))
-			self.formula = ttk.Checkbutton(self,text="Formula (ex. C17H10O5)",variable=formulaBox,onvalue="formula",offvalue='').grid(column=1,row=3,sticky=(N))
-			self.exactMass = ttk.Checkbutton(self,text="Exact Mass (ex.174.045-174.055)",variable=exactMassBox,onvalue="exact_mass",offvalue='').grid(column=1,row=4,sticky=(N))
-			self.molWeightBox = ttk.Checkbutton(self,text="Molecular Weight (ex.300-310)",variable=molWeightBox,onvalue="mol_weight",offvalue='').grid(column=1,row=5,sticky=(N))
-			self.submitBut = ttk.Button(self, text='Submit',command=submitML).grid(column=1,row=6,sticky=(N))
-			self.home1 = ttk.Button(self,text="Return to Home", command=self.home).grid(column=1,row=7,sticky=(N))
-
-
-		def submitCompoundList(*args):
-			tol = tolerance.get()
-			GU.compoundList(tol)
-
-		def massLookUp(*args):
-			logging.info(': Updating a exact mass list to include compounds!')
-			#updating the GUI to allow user to input data
-
-			objects = self.grid_slaves()
-			for i in objects:
-				i.grid_forget()
-
-			self.compoundLab = ttk.Label(self,text= "Exact Mass List Input" ,font=("TkHeadingFont",36)).grid(column=1,row=0,sticky=(N),pady=5)
-			self.massTolLab = ttk.Label(self,text= "Mass Tolerance (ppm)" ,font=("TkHeadingFont",16)).grid(column=1,row=1,sticky=(N))
-			global tolerance
-			tolerance = tk.StringVar()
-			self.tolerance = ttk.Entry(self,textvariable=tolerance).grid(column=1,row=2,sticky=(N))
-			self.submitTol = ttk.Button(self,text='Submit',command = submitCompoundList).grid(column=1,row=3,sticky=(N),pady=5)
-			self.backBtnml = ttk.Button(self, text="<-",command=manualLookup).grid(column=1,row=4,sticky=(N), pady=5)
-			self.home1 = ttk.Button(self,text="Return to Home", command=self.home).grid(column=1,row=5,sticky=(N),pady=5)
-
-
-		def manualLookup(*args):
-			#updating the GUI to allow user to input data
-			objects = self.grid_slaves()
-			for i in objects:
-				i.grid_forget()
-
-			self.JuneLab = ttk.Label(self, text ="Manual look-up",font=("TkHeadingFont",24)).grid(column=1,row=0,sticky=(N))
-			self.compoundBtn = ttk.Button(self,text="Compound", command=compLookUp).grid(column=1,row=1,sticky=(N),pady=5)
-			self.pathwayBtn = ttk.Button(self,text="Exact Mass List", command=massLookUp).grid(column=1,row=2,sticky=(N),pady=5)
-			self.home1 = ttk.Button(self,text="Return to Home", command=self.home).grid(column=1,row=4,sticky=(N),pady=5)
-			self.backBtn = ttk.Button(self, text="<-",command=self.compound).grid(column=1,row=3,sticky=(N), pady=5)
-
-		def keggGo(*args):
-			compoundGo = matchesBox.curselection()
-			compoundGo = matchesList[compoundGo[0]]
-
-			webGo = "https://www.genome.jp/entry/"
-			webGo += compoundGo
-
-			webbrowser.open(webGo)
-
-		def submitML(*args):
-			if lookUp =='comp':
-				
-				
-				formYN = formulaBox.get()
-				emYN = exactMassBox.get()
-				mwYN = molWeightBox.get()
-
-				curInput = inputLab1.get()
-				#input into a list
-				lookType = [formYN,emYN,mwYN]
-				typeLookUp = []
-				for i in range(len(lookType)):
-					if len(lookType[i]) > 0:
-						typeLookUp.append(lookType[i])
-
-				try:
-
-					request = REST.kegg_find('compound',curInput,typeLookUp[0])
-
-				except:
-					logging.error(': Failed to find any entry matching the input!')
-					messagebox.showerror(title="Error",message='Failed to find any entry matching the input!')
-					return
-
-				try:
-
-					open('CompoundMatches.txt','w').write(request.read())
-
-				except:
-					logging.error(': Failed to open text file! Let Brady know, this should rarely if ever happen!!')
-					messagebox.showerror(title='Error',message='Failed to open text file! Let Brady know, this should rarely if ever happen!')
-					return
-				objects = self.grid_slaves()
-				for i in objects:
-					i.grid_forget()
-
-
-				self.header = ttk.Label(self,text="Compound matches",font=("TkHeadingFont",36)).grid(column=1,row=0,sticky=(N),columnspan=2)
-				self.CompoundMatches = ttk.Label(self,text="ID",font=("TkHeadingFont",18)).grid(column=1,row=1,sticky=(N))
-				self.approHeader = ttk.Label(self,text=typeLookUp[0],font=("TkHeadingFont",18)).grid(column=2, row=1,sticky=(N))
-				
-				
-				global matchesBox	
-				lines = []
-				with open('CompoundMatches.txt') as f:
-					line = f.readline()
-					while line:
-						line = f.readline()
-						lines.append(line)
-				global matchesList
-				matchesList = []	
-				matchesOut = []	
-				#find length of found compounds
-				if len(lines) > 0:
-					for j in range(len(lines)):
-						if len(lines[j])>0:
-							#strip cpd:
-							curLine = lines[j].strip()
-							curLine = curLine.lstrip('cpd:')
-							curLine = curLine.split("\t")
-							matchesList.append(curLine[0])
-							curLine = curLine[0] +'--------------------------------------' +curLine[1]
-							matchesOut.append(curLine)
-				
-				matchesOut = tuple(matchesOut)
-				matches = StringVar(value=matchesOut)
-				matchesBox = Listbox(self, listvariable=matches,width=50)
-
-
-				matchesBox.bind('<Double-1>',keggGo)
-				self.matchesBox = matchesBox
-				self.matchesBox.grid(column=1,row=2,sticky=(N),columnspan=2)
-				self.home1 = ttk.Button(self,text="Return to Home",command=self.home).grid(column=2,row=3,sticky=(N))
-				self.compoundMatchUp = ttk.Button(self,text="Return to Compound Match-Up",command=self.compound).grid(column=1,row=3,sticky=(N))
-
-
-		objects = self.grid_slaves()
-		for i in objects:
-			i.grid_forget()
-
-		self.JuneLab = ttk.Label(self, text ="Compound Match-Up",font=("TkHeadingFont",24)).grid(column=1,row=0,sticky=(N),columnspan=2)
-		self.allCompounds = ttk.Button(self,text="All Compounds (Not Recommended)",command=allCompounds).grid(column=1,row=1, sticky=(N),columnspan=2,pady=5)
-		self.enrichmentCompounds = ttk.Button(self,text="Enrichment Compounds",command = enrichment).grid(column=1,row=2, sticky=(N),columnspan=2,pady=5)
-		self.manualLookup = ttk.Button(self,text="Manual KEGG Look-up", command=manualLookup).grid(column=1,row=3,sticky=(N),columnspan=2,pady=5)
-		self.home1 = ttk.Button(self,text="Return to Home",command=self.home).grid(column=1,row=4, sticky=(N),columnspan=2,pady=5)
-
-	def integrity(self):
-		filename = filedialog.askopenfilename()
-		GU.dataIntegrity(filename)
-
-	def mstF(self):
-		numClust = GU.MST(func='ensemble')
-		numClust = int(numClust)
-
-		GU.ensembleClustering(optNum=numClust)
-	
-	def P2P(self):
-		GU.peaksToPathways()
-
-	def ensemble(self):
-		global ensemble
-		ensemble = 1
-		
-		def ensembleScale(*args):
-			#grab the selection and minimum number of clusters
-			global scaleSel
-			scaleSel = scaleEnsem.curselection()
-			scaleSel = scaleList[scaleSel[0]]
-			self.submit = ttk.Button(self,text="Submit",command=ensembleNGo).grid(column=0,row=8,sticky=(N))
-
-		def ensembleCMap(*args):
-			#grab the selection and colormap wanted
-			global cMapSel
-			cMapSel = colorMapEnsem.curselection()
-			cMapSel = colorList[cMapSel[0]]
-			lenList = len(transformEnsem.get(0,tk.END))
-			if lenList > 0:
-				transformEnsem.delete(0,lenList-1)
-
-			for i in range(len(transformList)):
-				transformEnsem.insert(i,transformList[i])
-
-		def ensembleTransform(*args):
-			#grab the data transform of interest
-			global transSel
-			transSel = transformEnsem.curselection()
-			transSel = transformList[transSel[0]]
-			lenList = len(scaleEnsem.get(0,tk.END))
-			if lenList > 0:
-				scaleEnsem.delete(0,lenList-1)
-
-			for i in range(len(scaleList)):
-				scaleEnsem.insert(i,scaleList[i])
-		
-		def ensembleNGo(*args):
-			#send the user a message about what they are selecting.
-			messagebox.showinfo(title='Select ensemble parameter file',message='Select .csv file with ensemble parameters within it')
-			#get the file of ensemble parameters, read in and send information to ensemble clustering with full optimization. 
-			file = filedialog.askopenfilename()
-			parameters = pd.read_csv(file)
-			GU.ensembleClusteringFullOpt(parameters,transform=transSel,scale=scaleSel)
-
-		def cMapOpt(*args):
-			#send to webpage of colormap options in python
-			webbrowser.open('https://matplotlib.org/stable/tutorials/colors/colormaps.html')
-
-		def transOpts(*args):
-			webbrowser.open('https://github.com/hisl6802/Transformation-and-Scaling/wiki/Transformations')
-
-		def scaleOpts(*args):
-			webbrowser.open('https://github.com/hisl6802/Transformation-and-Scaling/wiki/Scaling')
-
-		objects = self.grid_slaves()
-		for i in objects:
-			i.grid_forget()
-		
-		#create widgets for the clustergram function input. 
-		self.EnsembleLabel = ttk.Label(self, text="Ensemble Clustering w/ Clustering Optimization",font=("TkHeadingFont",24)).grid(column=0,row=0,sticky=(N),columnspan=3)
-		self.colMap = ttk.Label(self, text="ColorMap", font=("TkHeadingFont",18)).grid(column=0,row=1,sticky=(N))
-		self.trans = ttk.Label(self,text="Transform",font=("TkHeadingFont",18)).grid(column=1,row=1,sticky=(N))
-		self.scale = ttk.Label(self,text="Scale", font=("TkHeadingFont",18)).grid(column=2,row=1,sticky=(N))
-		self.ButtonColormaps = ttk.Button(self,text="ColorMap Options",command=cMapOpt).grid(column=0,row=3,sticky=(N))
-		self.ButtonTransforms = ttk.Button(self,text="Transform Options",command=transOpts).grid(column=1,row=3,sticky=(N))
-		self.ButtonScale = ttk.Button(self,text="Scale Options", command=scaleOpts).grid(column=2,row=3,sticky=(N))
-		self.home1 = ttk.Button(self,text="Return to Home",command=self.home).grid(column=2,row=8, sticky=(N))
-		
-		global colorList
-		colorList = config.colorList 
-		
-		#create list box of the ensemble optimal clusters
-		global colorMapEnsem
-		global transformEnsem
-		global scaleEnsem
-		colorMapEnsem = Listbox(self, height=5,width=35)
-		transformEnsem = Listbox(self, height=5,width=35)
-		scaleEnsem = Listbox(self, height=5,width=35)
-
-		global transformList
-		global scaleList
-		transformList = config.transformList
-		scaleList = config.scaleList
-
-		#Create the lists of available options for selection 
-		colMap = StringVar(value=colorList)
-		transType = StringVar(value=transformList)
-		scaleType = StringVar(value=scaleList)
-
-		for i in range(len(colorList)):
-			colorMapEnsem.insert(i,colorList[i])
-		
-		#create binding event and 
-		scaleEnsem.bind('<Double-1>',ensembleScale)
-		colorMapEnsem.bind('<Double-1>',ensembleCMap)
-		transformEnsem.bind('<Double-1>',ensembleTransform)
-		self.colorMapEnsem = colorMapEnsem
-		self.colorMapEnsem.grid(column=0,row=2,columnspan=1)
-		self.transformEnsem = transformEnsem
-		self.transformEnsem.grid(column=1,row=2,columnspan=1)
-		self.scaleEnsem = scaleEnsem
-		self.scaleEnsem.grid(column=2,row=2,columnspan=1)
-
-
-	def mst(self):
-		'''
-		For the validation of single clustering solutions. This will focus on Silhouette, DBI and Calinski-Harabasz.
-		'''
-		def valType(*args):
-			selection = valTypeBox.curselection()
-			index = selection[0]
-			selection =valList[selection[0]]
-			#send the user to the minimum spanning tree function.
-			GU.MST(self, transform = transform, scale=scale,func=selection)
-
-		def transType(*args):
-			global transform
-			transform = transBox.curselection()
-			transform = transformList[transform[0]]
-		
-			lenList = len(scaleBox.get(0,tk.END))
-			if lenList > 0:
-				scaleBox.delete(0,lenList-1)
-
-			for i in range(len(scaleList)):
-				scaleBox.insert(i,scaleList[i])
-
-		def scaleType(*args):
-			global scale
-			scale = scaleBox.curselection()
-			scale = scaleList[scale[0]]
-
-			lenList = len(valTypeBox.get(0,tk.END))
-			if lenList > 0:
-				valTypeBox.delete(0,lenList-1)
-
-			for i in range(len(valList)):
-				valTypeBox.insert(i,valList[i])
-
-
-		#delete previous objects on the GUI
-		objects = self.grid_slaves()
-		for i in objects:
-			i.grid_forget()
-
-		#create widgets for the clustergram function input. 
-		self.JuneLab = ttk.Label(self, text="Validation Measure",font=("TkHeadingFont",24)).grid(column=1,row=0,sticky=(N))
-		self.home1 = ttk.Button(self,text="Return to Home",command=self.home).grid(column=1,row=3, sticky=(N))
-		self.transLab =ttk.Label(self,text="Transform",font=("TkHeadingFont",16)).grid(column=0,row=1,sticky=(N))
-		self.scaleLab =ttk.Label(self,text="Scale",font=("TkHeadingFont",16)).grid(column=1,row=1,sticky=(N))
-		self.valLab = ttk.Label(self,text="Validation",font=("TkHeadingFont",16)).grid(column=2,row=1,sticky=(N))
-
-		#validation index list (MST-based, DBI, Dunn)
-		transformList = config.transformList
-		scaleList = config.scaleList
-		valList = ('k-means based','DBI','Dunn','PBM','Silhouette')
-		valTypeBox = Listbox(self,height=5,width=30)
-		transBox = Listbox(self,height=5,width=30)
-		scaleBox = Listbox(self,height=5,width=30)
-
-		#defining string variables for each listbox
-		transName = StringVar(value=transformList)
-		scaleName = StringVar(value=scaleList)
-		valName = StringVar(value=valTypeBox)
-
-		for i in range(len(transformList)):
-			transBox.insert(i, transformList[i])
-
-		#create a binding event
-		transBox.bind('<Double-1>',transType)
-		scaleBox.bind('<Double-1>',scaleType)
-		valTypeBox.bind('<Double-1>',valType)
-		self.transBox = transBox
-		self.transBox.grid(column=0,row=2,sticky=(N),padx=5,pady=5)
-		self.scaleBox =scaleBox
-		self.scaleBox.grid(column=1,row=2,sticky=(N),pady=5)
-		self.valTypeBox = valTypeBox
-		self.valTypeBox.grid(column=2,row=2,sticky=(N),padx=5,pady=5)
-
-	def genSelClustFig(self):
-
-		def selectedCMap(*args):
-			clMap = cmap.curselection()
-			clMap = colorList[clMap[0]]
-			GB.createHeatmapFig(clMap=clMap)
-
-		objects =self.grid_slaves()
-		for i in objects:
-			i.grid_forget()
-
-		self.Label = ttk.Label(self,text='Select ColorMap', font=("TkHeadingFont",36)).grid(column=1,row=0,sticky=(N))
-		cmap1= tk.StringVar()
-		cmap=Listbox(self,width=25)
-		self.home2 = ttk.Button(self,text="Return to Home",command=self.home).grid(column=1,row=2,sticky=(N))
-		colorList = config.colorList
-
-		cmap.bind('<Double-1>',selectedCMap)
-
-		for i in range(len(colorList)):
-			cmap.insert(i,colorList[i])
-
-		self.cmap = cmap
-		self.cmap.grid(column=1,row=1,sticky=(N))
-	
-
-	def anovaHeatMap(self):
-		'''
-		'''
-
-		def buildAHM(*args):
-			scale = scaleAH.curselection()
-			scale = scaleList[scale[0]]
-			GU.anovaHM(transform =transform,scale=scale,cMap = cMap)
-			
-
-		def transformAH(*args):
-			global cMap
-			cMap = colorMapAH.curselection()
-			cMap = colorList[cMap[0]]
-			#create a list of the color map options
-			lenList = len(transformAHMP.get(0,tk.END))
-			if lenList > 0:
-				transformAHMP.delete(0,lenList-1)
-
-			for i in range(len(transformList)):
-				transformAHMP.insert(i,transformList[i])
-
-			#bind the output back to the GUI
-			self.transformAHMP = transformAHMP
-			self.transformAHMP.grid(column=2,row=2,columnspan=1)
-			return cMap
-
-		def scaleAHMP(*args):
-			global transform
-			transform = transformAHMP.curselection()
-			transform = transformList[transform[0]]
-			#create a list of the color map options
-			lenList = len(scaleAH.get(0,tk.END))
-			if lenList > 0:
-				scaleAH.delete(0,lenList-1)
-
-			for i in range(len(scaleList)):
-				scaleAH.insert(i,scaleList[i])
-
-			#bind the output back to the GUI
-			self.scaleAH = scaleAH
-			self.scaleAH.grid(column=3,row=2,columnspan=1)
-			self.buildHM.grid(column=2,row=3,sticky=(N))
-			return cMap
-
-
-		objects = self.grid_slaves()
-		for i in objects:
-			i.grid_forget()
-
-		self.AHMLab = ttk.Label(self,text="ANOVA Heatmap",font=("TkHeadingFont",36)).grid(column=2,row=0,sticky=(N))
-		self.colMapAHM = ttk.Label(self, text="ColorMap", font=("TkHeadingFont",18)).grid(column=1,row=1,sticky=(N))
-		self.transAHM = ttk.Label(self,text="Transform",font=("TkHeadingFont",18)).grid(column=2,row=1,sticky=(N))
-		self.scaleAHM = ttk.Label(self,text="Scale", font=("TkHeadingFont",18)).grid(column=3,row=1,sticky=(N))
-		self.buildHM = ttk.Button(self,text='Submit',command=buildAHM)
-		self.homepageAHM = ttk.Button(self,text="Return to Home",command=self.home).grid(column=2, row=4,sticky=(N),columnspan=1)
-
-		colorList = config.colorList
-		
-		#create list box of the ensemble optimal clusters
-		colorMapAH = Listbox(self, height=5,width=35)
-		transformAHMP = Listbox(self, height=5,width=35)
-		scaleAH = Listbox(self, height=5,width=35)
-
-		transformList = config.transformList
-		scaleList = config.scaleList
-
-		for i in range(len(colorList)):
-			colorMapAH.insert(i,colorList[i])
-
-		colorMapAH.bind('<Double-1>',transformAH)
-		transformAHMP.bind('<Double-1>',scaleAHMP)
-
-		self.colorMapAH= colorMapAH
-		self.colorMapAH.grid(column=1,row=2,columnspan=1)
-		self.transformAHMP = transformAHMP
-		self.transformAHMP.grid(column=2,row=2,columnspan=1)
-		self.scaleAH = scaleAH
-		self.scaleAH.grid(column=3,row=2,columnspan=1)
-
-	def enzymeLookUp(self):
-		'''
-		'''
-
-		def submitELU(*args):
-			numHMSel = numHMList.curselection()
-			numHMSel = numHM[numHMSel[0]]	
-			GU.enzymeLookUp(numSheets=numHMSel)
-
-		objects = self.grid_slaves()
-		for i in objects:
-			i.grid_forget()
-
-
-		self.eLU = ttk.Label(self,text="Enzyme Loop Up", font=("TkHeadingFont",36)).grid(column=1,row=0,sticky=(N))
-		self.numHM = ttk.Label(self,text="Number of Heatmaps (i.e.,sheets)").grid(column=1,row=1,sticky=(N))
-		self.eLUHome = ttk.Button(self,text="Return to Home", command=self.home).grid(column=1,row=3,sticky=(N))
-
-
-		#Create the lists of available options for selection 
-		numHM = tuple(range(1,15))
-
-		numHMList = Listbox(self,height=5,width=35)
-
-		for i in range(len(numHM)):
-			numHMList.insert(i,numHM[i])
-
-		numHMList.bind('<Double-1>', submitELU)
-
-		self.numHMList = numHMList
-		self.numHMList.grid(column=1,row=2,sticky=(N),pady=5,padx=5)
-
-
-	def helpOut(self):
-		webbrowser.open('https://github.com/hisl6802/ClusteringToolbox/wiki')
-
-	def CIsTtest(self):
-		'''
-		'''
-		def submitNumSamps(*args):
-			global numSampsSel
-			numSampsSel = numSampsList.curselection()
-			numSampsSel = numSamps[numSampsSel[0]]
-			self.submitCI.grid(column=1,row=5,sticky=(N))
-		
-		def submitCI_t(*args):
-			confidenceLevel = self.conf.get()
-
-			GU.confidenceIntervals(numSampsSel,confidenceLevel=confidenceLevel)
-
-		#eliminating the objects from home page.
-		objects = self.grid_slaves()
-		for i in objects:
-			i.grid_forget()
-
-		#adding widgets for CI calculation
-		self.CIHead = ttk.Label(self,text="Confidence Intervals from t-tests", font=("TkHeadingFont",36)).grid(column=1,row=0,sticky=(N))
-		self.CISampSize = ttk.Label(self,text="Number of Samples per group").grid(column=1,row=1,sticky=(N))
-		self.CIConfidenceLevel = ttk.Label(self,text="Confidence level? (ex. 95)").grid(column=1,row=3,sticky=(N))
-		self.submitCI = ttk.Button(self,text="Submit",command = submitCI_t)
-		self.conf = tk.StringVar()
-		self.CILevel = ttk.Entry(self,textvariable=self.conf).grid(column=1,row=4, pady=3)
-		self.CIHome = ttk.Button(self,text="Return to Home", command=self.home).grid(column=1,row=6,sticky=(N))
-
-
-		#Create the lists of available options for selection 
-		numSamps = tuple(range(1,101))
-		numSampsList = Listbox(self,height=5,width=35)
-
-
-		for i in range(len(numSamps)):
-			numSampsList.insert(i,numSamps[i])
-
-		numSampsList.bind('<Double-1>',submitNumSamps)
-
-		self.numSampsList = numSampsList
-		self.numSampsList.grid(column=1,row=2,sticky=(N))
-
-	def normalityC(self):
-		'''
-		'''
-		def dataTransform(*args):
-			'''
-			'''
-			global curTrans
-			curTrans = transformListBox.curselection()
-			curTrans = transformList[curTrans[0]]
-			#input the linkage function values into the box
-			for i in range(len(scaleList)):
-				scaleListBox.insert(i,scaleList[i])
-
-			self.submitNormC.grid(column=1,row=3,sticky=(N),columnspan=2)
-				
-		def submitNormC(*args):
-			'''
-			'''
-			curScale = scaleListBox.curselection()
-			curScale = scaleList[curScale[0]]
-
-			GU.normalityCheck(transform=curTrans,scale=curScale)
-
-		#eliminating the objects from home page.
-		objects = self.grid_slaves()
-		for i in objects:
-			i.grid_forget()
-		
-
-		#put together buttons for users of the normality check functionality
-		self.normCLab = ttk.Label(self,text="Normality Check",font=("TkHeadingFont",36)).grid(column=1,row=0,sticky=(N),columnspan=2)
-		self.transNormC = ttk.Label(self,text="Transform",font=("TkHeadingFont",18)).grid(column=1,row=1,sticky=(N))
-		self.scaleNormC = ttk.Label(self,text="Scale", font=("TkHeadingFont",18)).grid(column=2,row=1,sticky=(N))
-		self.submitNormC = ttk.Button(self,text="Submit", command=submitNormC)
-		self.normHome = ttk.Button(self,text="Return to Home", command=self.home).grid(column=1,row=4,sticky=(N),columnspan=2)
-		transformListBox = Listbox(self, height=8)
-		scaleListBox = Listbox(self, height=8)
-
-
-		#Getting the transform and scale from user
-		transformList = config.transformList 
-		scaleList = config.scaleList 
-
-		transformNames = StringVar(value=transformList)
-		scaleNames = StringVar(value=scaleList)
-
-		
-		#input the linkage function values into the box
-		for i in range(len(transformList)):
-			transformListBox.insert(i,transformList[i])
-
-
-
-		transformListBox.bind('<Double-1>',dataTransform)
-		self.transformListBoxNC = transformListBox
-		self.transformListBoxNC.grid(column=1,row=2,columnspan=1)
-		self.scaleListBoxNC = scaleListBox
-		self.scaleListBoxNC.grid(column=2,row=2,columnspan=1)
-
-	def MZ_RT(self):
-		'''
-		'''
-		#send straight to the function
-		GU.mzrt()
-
-	def mfg(self):
-		'''
-		'''
-		def submitMFG(*args):
-			'''
-			'''
-
-			selected = optionsList.curselection()
-
-			# if the user selected something
-			if selected:
-				selected = options[selected[0]]
-				file = filedialog.askopenfilename()
-				GU.mfgUtil(fileName=file,variant=selected)
-			else:
-				print("Nothing Selected")
-			
-		#eliminating the objects from home page.
-		objects = self.grid_slaves()
-		for i in objects:
-			i.grid_forget()
-
-
-		self.header = ttk.Label(self,text="Metabobot File Gen", font=("TkHeadingFont",36)).grid(column=1,row=0,sticky=(N))
-		self.goHomePlease = ttk.Button(self,text="Return to Home", command=self.home).grid(column=1,row=4,sticky=(N),columnspan=1)
-		self.submitNormC = ttk.Button(self,text="Submit", command=submitMFG).grid(column=2,row=4,sticky=(N))
-
-		#Create the lists of available options for selection 
-		options = list(["Multi","Uni","All"])
-
-		optionsList = Listbox(self,height=5,width=35)
-
-		for i in range(len(options)):
-			optionsList.insert(i,options[i])
-
-	
-		self.optionsList = optionsList
-		self.optionsList.grid(column=1,row=2,sticky=(N),pady=5,padx=5)
-
-
-	def metaboBot(self):
-		'''
-		'''
-		def submitMetabo(*args):
-			selection = analysisListBox.curselection()
-			selection = config.typeAnalysis[selection[0]]
-			#sending information to the bot
-			GU.metaboBot(analysis=selection,varianceFilter=varSelect,sampleNorm=sampleNormSelect,trans=transSelect,scale=scaleSelect)
-
-			return
-
-		def varFilt(*args):
-			#get the variance filter selection
-			global varSelect
-			varSelect = varFiltListBox.curselection()
-			varSelect = config.varianceFilters[varSelect[0]]
-
-			#input the sample normalization lists
-			for i in range(len(sampleNormList)):
-				sampleNormListBox.insert(i,sampleNormList[i])
-
-			return
-		
-		def sampNorm(*args):
-			#get the sampleNormalization selection
-			global sampleNormSelect
-			sampleNormSelect = sampleNormListBox.curselection()
-			sampleNormSelect = config.sampNorm[sampleNormSelect[0]]
-
-			#input the linkage function values into the box
-			for i in range(len(transList)):
-				transListBox.insert(i,transList[i])
-
-			return
-		
-		def transform(*args):
-			#get the sampleNormalization selection
-			global transSelect
-			transSelect = transListBox.curselection()
-			transSelect = config.transformList[transSelect[0]]
-
-			#input the linkage function values into the box
-			for i in range(len(scaleList)):
-				scaleListBox.insert(i,scaleList[i])
-
-		def scale(*args):
-			#get the scale that was selected
-			global scaleSelect
-			scaleSelect = scaleListBox.curselection()
-			scaleSelect = config.scaleList[scaleSelect[0]]
-
-			#input the analysis types
-			for i in range(len(analysisList)):
-				analysisListBox.insert(i,analysisList[i])
-
-			return
-		
-		
-		#get rid of the objects that aren't needed for the external optimization.
-		objects = self.grid_slaves()
-		for i in objects:
-			i.grid_forget()
-
-		#Labels and a button to go back to the homepage. 
-		self.metaboBotLab = ttk.Label(self, text="MetaboAnalyst 6.0 Bot",font=("TkHeadingFont",36)).grid(column=1,row=0,sticky=(N),columnspan=3)
-		self.metaboBotVarFiltLab = ttk.Label(self, text="Variance Filter",font=("TkHeadingFont",20)).grid(column=1,row=1,sticky=(N))
-		self.metaboBotSampNormLab = ttk.Label(self, text="Sample Normalization",font=("TkHeadingFont",20)).grid(column=2,row=1,sticky=(N))
-		self.metaboBotTransLab = ttk.Label(self, text="Data Transformation",font=("TkHeadingFont",20)).grid(column=3,row=1,sticky=(N))
-		self.metaboBotScaleLab = ttk.Label(self, text="Data Scaling",font=("TkHeadingFont",20)).grid(column=1,row=3,sticky=(N))
-		self.metaboBotAnalysisLab = ttk.Label(self, text="Analysis Type",font=("TkHeadingFont",20)).grid(column=2,row=3,sticky=(N))
-		self.backHome = ttk.Button(self,text="Return to Home", command=self.home).grid(column=2,row=5,sticky=(N))
-		
-		#get the metrics of interest
-		analysisListBox = Listbox(self,height=8)
-		varFiltListBox = Listbox(self,height=8) #variance filter list box
-		sampleNormListBox = Listbox(self,height=8) #sample normaliation list box.
-		transListBox = Listbox(self,height=8) #transformation list box
-		scaleListBox = Listbox(self,height=8) #set up the scale list box
-
-		#Create the lists of available options for selection 
-		analysisList = config.typeAnalysis
-		varianceFiltList = config.varianceFilters
-		sampleNormList = config.sampNorm
-		transList = config.transformList
-		scaleList =config.scaleList
-
-		#input the linkage function values into the box
-		for i in range(len(varianceFiltList)):
-			varFiltListBox.insert(i,varianceFiltList[i])
-
-		#setting up the binding and the locations.
-		analysisListBox.bind('<Double-1>',submitMetabo)
-		varFiltListBox.bind('<Double-1>',varFilt)
-		sampleNormListBox.bind('<Double-1>',sampNorm)
-		transListBox.bind('<Double-1>',transform)
-		scaleListBox.bind('<Double-1>',scale)
-		self.sampleNormListBox = sampleNormListBox
-		self.analysisListBox = analysisListBox
-		self.varFiltListBox = varFiltListBox
-		self.transListBox = transListBox
-		self.scaleListBox = scaleListBox
-		##### Need to update the location
-		self.varFiltListBox.grid(column=1, row=2,sticky=(N),pady=5,padx=5)
-		self.sampleNormListBox.grid(column=2, row=2,sticky=(N),pady=5,padx=5)
-		self.transListBox.grid(column=3, row=2,sticky=(N),pady=5,padx=5)
-		self.scaleListBox.grid(column=1, row=4,sticky=(N),pady=5,padx=5)
-		self.analysisListBox.grid(column=2,row=4,sticky=(N),pady=5,padx=5)
-
-
-
-	def mummiBot(self):
-		'''
-		'''
-		def submit(*args):
-			#get the current selected mummi db and send to 
-			print(config.pval)
-			db = mummiDBsBox.curselection()
-			db = config.mummidbs[db[0]]
-
-			GU.mummiBot()
-
-		def modes(*args):
-			#get the selected mode
-			global selectedMode
-			selectedMode = modesListBox.curselection()
-			selectedMode = config.modes[selectedMode[0]]
-			#put mummi db options into list. 
-			for i in range(len(mummiDBs)):
-				mummiDBsBox.insert(i,mummiDBs[i])
-
-
-		#eliminating the objects from home page.
-		objects = self.grid_slaves()
-		for i in objects:
-			i.grid_forget()
-
-
-		self.header = ttk.Label(self,text="Mummichog Bot", font=("TkHeadingFont",36)).grid(column=1,row=0,sticky=(N),columnspan=3)
-		self.goHomePlease = ttk.Button(self,text="Return to Home", command=self.home).grid(column=1,row=4,sticky=(N),columnspan=2)
-
-
-		#get the metrics of interest
-		modesListBox = Listbox(self,height=8)
-		mummiDBsBox = Listbox(self,height=8) #variance filter list box
-
-		#Create the lists of available options for selection 
-		modesList = config.modes
-		mummiDBs = config.mummidbs
-
-		for i in range(len(modesList)):
-			modesListBox.insert(i,modesList[i])
-
-		#setting up the binding and the locations.
-		modesListBox.bind('<Double-1>',modes)
-		mummiDBsBox.bind('<Double-1>',submit)
-		self.modesListBox = modesListBox
-		self.mummiDBsBox = mummiDBsBox
-		self.mummiDBsBox.grid(column=2,row=2,sticky=(N),pady=5,padx=5)
-		self.modesListBox.grid(column=1,row=2,sticky=(N),pady=5,padx=5)
-
-	def externalOpt(self):
-		'''
-		'''
-		def submitExternal(*args):
-			'''
-			'''
-			selection = metricsListBox.curselection()
-			selection = config.metrics[selection[0]]
-			GU.externalCriteria(comp=selection,trans=transSelection,scale=scaleSelection)
-
-			return
-		
-		def transformation(*args):
-			'''
-			'''
-			global transSelection
-			transSelection = transformListBox.curselection()
-			transSelection = config.transformList[transSelection[0]]
-
-			#input scale values to list 
-			for i in range(len(scaleList)):
-				scaleListBox.insert(i,scaleList[i])
-
-			return
-		
-		def scaling(*args):
-			global scaleSelection
-			scaleSelection = scaleListBox.curselection()
-			scaleSelection = config.scaleList[scaleSelection[0]]
-
-			#input the metrics
-			for i in range(len(metricsList)):
-				metricsListBox.insert(i,metricsList[i])
-			return
-
-		#get rid of the objects that aren't needed for the external optimization.
-		objects = self.grid_slaves()
-		for i in objects:
-			i.grid_forget()
-
-		#button to go home in the UI
-		self.ecLab = ttk.Label(self, text="External Criteria Evaluation",font=("TkHeadingFont",36)).grid(column=1,row=0,sticky=(N),columnspan=3)
-		self.transLab = ttk.Label(self, text="Transformation",font=("TkHeadingFont",20)).grid(column=1,row=1,sticky=(N))
-		self.scaleLab = ttk.Label(self, text="Scale",font=("TkHeadingFont",20)).grid(column=2,row=1,sticky=(N))
-		self.scaleLab = ttk.Label(self, text="Criteria",font=("TkHeadingFont",20)).grid(column=3,row=1,sticky=(N))
-		self.backHome = ttk.Button(self,text="Return to Home", command=self.home).grid(column=2,row=4,sticky=(N))
-		
-		#get the metrics of interest
-		metricsListBox = Listbox(self,height=8)
-		transformListBox = Listbox(self,height=8)
-		scaleListBox = Listbox(self,height=8)
-
-		#Create the lists of available options for selection 
-		metricsList = config.metrics
-		transformList = config.transformList
-		scaleList = config.scaleList
-
-		#input the linkage function values into the box
-		for i in range(len(transformList)):
-			transformListBox.insert(i,transformList[i])
-
-		transformListBox.bind('<Double-1>',transformation)
-		scaleListBox.bind('<Double-1>',scaling)
-		metricsListBox.bind('<Double-1>',submitExternal)
-		self.transformListBox = transformListBox
-		self.scaleListBox = scaleListBox
-		self.metricsListBox = metricsListBox
-		self.transformListBox.grid(column=1,row=2,sticky=(N),pady=5,padx=5)
-		self.scaleListBox.grid(column=2,row=2,sticky=(N),pady=5,padx=5)
-		self.metricsListBox.grid(column=3,row=2,sticky=(N),pady=5,padx=5)
-
-	def gene2path(self):
-		'''
-		'''
-
-		GU.geneToPathway()
-	
-	def monoVal(self):
-		'''
-		'''
-		def linkageOutput(*args):
-			#grab the current selection of the list
-			global selection
-			selection = distListBox.curselection()
-			curLink = linkageList[selection[0]]
-			if curLink == 'ward':
-				lenList = len(sampleListBox.get(0,tk.END))
-				if lenList > 0:
-					sampleListBox.delete(0,lenList-1)
-
-				sampleListBox.insert(0,distList[0])
-				
-				self.sampleListBox = sampleListBox
-				self.sampleListBox.grid(column=2,row=2,columnspan=1)
-			else:
-				lenList = len(sampleListBox.get(0,tk.END))
-				if lenList > 0:
-					sampleListBox.delete(0,lenList-1)
-
-				for i in range(len(distList)):
-					sampleListBox.insert(i,distList[i])
-
-				#bind the output back to the GUI.
-				self.sampleListBox = sampleListBox
-				self.sampleListBox.grid(column=2,row=2,columnspan=1)
-			return selection
-
-		def optMet(*args):
-			global selection1
-			selection1 = sampleListBox.curselection()
-			#create a list of the color map options
-			lenList = len(optListBox.get(0,tk.END))
-			if lenList > 0:
-				optListBox.delete(0,lenList-1)
-
-			for i in range(len(optList)):
-				optListBox.insert(i,optList[i])
-
-			#bind the output back to the GUI
-			self.optListBox = optListBox
-			self.optListBox.grid(column=3,row=2,columnspan=1)
-			return selection1
-
-		def dataTransform(*args):
-			#dataTransform
-			global selection2
-			selection2 = optListBox.curselection()
-
-			#put the data transform options into the list
-			lenList = len(transformListBox.get(0,tk.END))
-			if lenList > 0:
-				transformListBox.delete(0,lenList-1)
-
-			for i in range(len(transformList)):
-				transformListBox.insert(i,transformList[i])
-
-			self.transformListBox = transformListBox
-			self.transformListBox.grid(column=1,row=4,columnspan=1)
-			return selection2
-
-		def dataScale(*args):
-			#get wanted transform
-			global selection3
-			selection3 = transformListBox.curselection()
-			
-			#put the data scaling optoins into the list
-			lenList = len(scaleListBox.get(0,tk.END))
-			if lenList > 0:
-				scaleListBox.delete(0,lenList-1)
-
-			for i in range(len(scaleList)):
-				scaleListBox.insert(i,scaleList[i])
-
-			self.scaleListBox = scaleListBox
-			self.scaleListBox.grid(column=2,row=4,columnspan=1)
-			return selection3
-		
-		def upNumClust(*args):
-			#get scaling
-			global selection4
-			selection4 = scaleListBox.curselection()
-			#put the data scaling optoins into the list
-			lenList = len(clustersListBox.get(0,tk.END))	
-			if lenList >0:
-				clustersListBox.delete(0,lenList-1)
-
-			for i in range(len(minMetab)):
-				clustersListBox.insert(i,minMetab[i])
-
-			self.clustersListBox = clustersListBox
-			self.clustersListBox.grid(column=3,row=4,columnspan=1)
-
-
-		def submit(*args):
-			#get the number of clusters selected for the upper limit
-			selection5 = clustersListBox.curselection()
-
-			dist = distList[selection1[0]]
-			link = linkageList[selection[0]]
-			optimizer = optList[selection2[0]]
-			transform = transformList[selection3[0]]
-			scale = scaleList[selection4[0]]
-			numClust = minMetab[selection5[0]]
-
-			#send to the validation of mono-clustering solutions funtionality.
-			GU.validateMono(self,numClust,transform,scale,link,dist,optimizer)
-
-
-		objects = self.grid_slaves()
-		for i in objects:
-			i.grid_forget()
-
-		#create widgets for the clustergram function input. 
-		self.JuneLab = ttk.Label(self, text="Mono-clustering Optimization",font=("TkHeadingFont",36)).grid(column=1,row=0,sticky=(N),columnspan=3)
-		self.Linkage = ttk.Label(self, text="Linkage",font=("TkHeadingFont",12)).grid(column=1,row=1,sticky=(N))
-		self.Distance = ttk.Label(self, text="Distance Measure",font=("TkHeadingFont",12)).grid(column=2,row=1,sticky=(N))
-		self.Color = ttk.Label(self,text="Optimization metric", font=("TkHeadingFont",12)).grid(column=3,row=1,sticky=(N))
-		self.Transform = ttk.Label(self,text="Transform", font=("TkHeadingFont",12)).grid(column=1,row=3,sticky=(N))
-		self.Scale = ttk.Label(self,text="Scale",font=('TkHeadingFont',12)).grid(column=2,row=3,sticky=(N))
-		self.Opt = ttk.Label(self,text="Upper # of clusters",font=('TkHeadingFont',12)).grid(column=3,row=3,sticky=(N))
-		self.homepage = ttk.Button(self,text="Return to Home",command=self.home).grid(column=2, row=8,sticky=(N),columnspan=1)
-		self.submit = ttk.Button(self,text="Submit", command=submit).grid(column=2, row=7,sticky=(N),columnspan=1)
-		distListBox = Listbox(self,height=8)
-		sampleListBox = Listbox(self,height=8)
-		optListBox = Listbox(self,height=8)
-		transformListBox = Listbox(self, height=8)
-		scaleListBox = Listbox(self, height=8)
-		clustersListBox = Listbox(self,height=8)
-		
-		#Create the lists of available options for selection 
-		linkageList = config.linkageList
-		distList = config.distList
-		optList = config.optList
-		transformList = config.transformList 
-		scaleList = config.scaleList 
-
-		#specify each entry as a string variable
-		minMetab = tuple(range(3,101))
-		minNum = StringVar(value=minMetab)
-		linkNames = StringVar(value=linkageList)
-		distNames = StringVar(value=distList)
-		optNames = StringVar(value=optList)
-		transformNames = StringVar(value=transformList)
-		scaleNames = StringVar(value=scaleList)
-
-		
-		#input the linkage function values into the box
-		for i in range(len(linkageList)):
-			distListBox.insert(i,linkageList[i])
-
-		distListBox.bind('<Double-1>',linkageOutput)
-		sampleListBox.bind('<Double-1>',optMet)
-		optListBox.bind('<Double-1>',dataTransform)
-		transformListBox.bind('<Double-1>', dataScale)
-		scaleListBox.bind('<Double-1>',upNumClust)
-		self.distListBox = distListBox
-		self.distListBox.grid(column=1,row=2,columnspan=1)
-		self.sampleListBox = sampleListBox
-		self.sampleListBox.grid(column=2,row=2,columnspan=1)
-		self.colorListBox = optListBox
-		self.colorListBox.grid(column=3,row=2,columnspan=1)
-		self.transformListBox = transformListBox
-		self.transformListBox.grid(column=1,row=4,columnspan=1)
-		self.scaleListBox = scaleListBox
-		self.scaleListBox.grid(column=2,row=4,columnspan=1)
-		self.clustersListBox = clustersListBox
-		self.clustersListBox.grid(column=3,row=4,columnspan=1)
-	
-	def progen(self):
-		'''
-		'''
-
-		GU.progenesis()
-		
+    def __init__(self, master=None):
+        super().__init__(master)
+        # Fill the whole window
+        self.grid(column=0, row=0, sticky=(N, W, E, S))
+        master.columnconfigure(0, weight=1)
+        master.rowconfigure(0, weight=1)
+        self.startUpPage()
+
+    #  helpers 
+    def _clear(self):
+        """Destroy every child widget so the frame is completely empty."""
+        for w in self.winfo_children():
+            w.destroy()
+
+    def _run_with_busy(self, status_text, work_fn):
+        """Show a visible busy state while running a long callback."""
+        status_lbl = ttk.Label(self, text=status_text, font=("TkHeadingFont", 11))
+        status_lbl.grid(column=1, row=8, columnspan=3, pady=4)
+        self.configure(cursor="watch")
+        if self.master is not None:
+            self.master.configure(cursor="watch")
+        self.update_idletasks()
+        try:
+            return work_fn()
+        finally:
+            status_lbl.destroy()
+            self.configure(cursor="")
+            if self.master is not None:
+                self.master.configure(cursor="")
+            self.update_idletasks()
+
+    def _configure_home_grid(self):
+        """
+        Set column/row weights for the main button grid.
+        Called once after _clear() before re-populating with buttons.
+        """
+        # reset any previous config
+        for c in range(5):
+            self.columnconfigure(c, weight=0)
+        for r in range(12):
+            self.rowconfigure(r, weight=0)
+
+        # Button grid uses columns 1..4 (4 equal-width button columns).
+        # Column 0 acts as the only left padding column.
+        self.columnconfigure(0, weight=1)   # left pad
+        self.columnconfigure(1, weight=3)
+        self.columnconfigure(2, weight=3)
+        self.columnconfigure(3, weight=3)
+        self.columnconfigure(4, weight=3)   # right button column
+
+        self.rowconfigure(0, weight=1)      # title row
+        for r in range(1, 9):
+            self.rowconfigure(r, weight=2)  # button rows
+
+    def _configure_sub_grid(self):
+        """Weights for sub-pages (simpler, centred single-column layout)."""
+        for c in range(5):
+            self.columnconfigure(c, weight=0)
+        for r in range(12):
+            self.rowconfigure(r, weight=0)
+
+        self.columnconfigure(0, weight=1)
+        self.columnconfigure(1, weight=3)
+        self.columnconfigure(2, weight=3)
+        self.columnconfigure(3, weight=3)
+        self.columnconfigure(4, weight=1)
+
+        for r in range(10):
+            self.rowconfigure(r, weight=1)
+
+    #  start-up page
+    def startUpPage(self):
+        self._clear()
+        self._configure_sub_grid()
+
+        self.style = ttk.Style()
+        self.style.configure("RW.TLabel",  foreground="#000000",
+                             font=("TkHeadingFont", 30))
+        self.style.configure("RW.TButton", padding=15, borderwidth=15,
+                             foreground="gray", background="#000000",
+                             font=("Arial", 14))
+
+        numThreads = int(multiprocessing.cpu_count())
+
+        ttk.Label(self, text="GUI Set-Up", style="RW.TLabel").grid(
+            column=1, row=0, columnspan=3, pady=20)
+        ttk.Label(self, text="Please input your name or a Project name:",
+                  font=("TkHeadingFont", 16)).grid(
+            column=1, row=1, columnspan=3, sticky=(E, W), pady=2)
+
+        self.name    = tk.StringVar()
+        self.threads = tk.StringVar()
+        self.output_dir = tk.StringVar()
+
+        ttk.Entry(self, textvariable=self.name).grid(
+            column=1, row=2, columnspan=3, sticky=(E, W), padx=20)
+        ttk.Label(self, text="Number of threads:",
+                  font=("TkHeadingFont", 16)).grid(
+            column=1, row=3, columnspan=3, sticky=(E, W), pady=2)
+        ttk.Entry(self, textvariable=self.threads).grid(
+            column=1, row=4, columnspan=3, sticky=(E, W), padx=20)
+        ttk.Label(self,
+                  text=f"You have {numThreads} available"
+                       "(Using half or less is recommended)",
+                  font=("TkHeadingFont", 14)).grid(
+            column=1, row=5, columnspan=3, sticky=(E, W), pady=2)
+
+        ttk.Label(self, text="Output folder (logs + results):",
+                  font=("TkHeadingFont", 16)).grid(
+            column=1, row=6, columnspan=3, sticky=(E, W), pady=(10, 2))
+        ttk.Entry(self, textvariable=self.output_dir).grid(
+            column=1, row=7, columnspan=2, sticky=(E, W), padx=(20, 5))
+        ttk.Button(self, text="Browse…",
+                   command=lambda: self.output_dir.set(
+                       filedialog.askdirectory() or self.output_dir.get()
+                   )).grid(column=3, row=7, sticky=(E, W), padx=(5, 20))
+
+        ttk.Button(self, text="Get Started!",
+                   command=self.create_widgets).grid(
+            column=1, row=8, columnspan=3, sticky=(E, W), padx=30, pady=(12, 2))
+
+    #  main button page
+    def create_widgets(self):
+        name       = self.name.get()
+        numThreads = self.threads.get()
+        out_dir    = (self.output_dir.get() or "").strip()
+        try:
+            if int(numThreads) <= multiprocessing.cpu_count():
+                config.numThreads = int(numThreads)
+        except Exception:
+            config.numThreads = 2
+            messagebox.showinfo(
+                title="Number of Threads",
+                message="You have been assigned 2 threads.")
+        config.name = name
+        if out_dir:
+            try:
+                os.chdir(out_dir)
+            except Exception:
+                messagebox.showwarning(
+                    title="Output folder",
+                    message=("Unable to switch to the selected output folder.\n\n"
+                             f"Folder: {out_dir}\n\n"
+                             "Logs/results will be saved to the current working directory.")
+                )
+
+        log_time = time.strftime("%a_%b_%d_%Y_%H_%M_%S")
+        log_file  = config.name + '_' + log_time + '.log'
+        logging.basicConfig(filename=log_file,
+                            format='%(asctime)s %(message)s',
+                            datefmt='%m/%d/%Y %I:%M:%S %p',
+                            level=logging.INFO)
+        logging.info('Started GUI')
+
+        self._show_home()
+
+    def _show_home(self):
+        """
+        Destroy everything, re-apply home grid weights, then rebuild
+        all buttons from scratch.  Called by create_widgets AND home().
+        """
+        self._clear()
+        self._configure_home_grid()
+
+        self.style = ttk.Style()
+        self.style.configure('RW.TLabel',
+                             foreground='#000000',
+                             font=('Arial', 28, 'bold'),
+                             padding=10)
+        self.style.configure('RW.TButton',
+                             font=('Arial', 11, 'bold'),
+                             foreground='#000000',
+                             background='#95a8ba',
+                             borderwidth=5,
+                             padding=8,
+                             relief='raised')
+
+        ttk.Label(self, text="Clustering Toolbox",
+                  style="RW.TLabel").grid(
+            column=0, row=0, columnspan=5, pady=10)
+
+        # button definitions: (label, command, col, row, tooltip)
+        buttons = [
+            ("Remove Duplicate Features", self.preprocess,          1, 1,
+             "Remove rows with duplicate values in the first column"),
+            
+            ("Data Integrity",            self.integrity,           2, 1,
+             "Handles multiple decimals in first column common in MetaboAnalyst Volcano plot results downloads"),
+            
+            ("Check Normality",           self.normalityC,          3, 1,
+             "Check normality - shows before and after data transformation"),
+
+            ("Compare Linkage Functions", self.linkages,            4, 1,
+             "Compare linkage functions used for clustering outputs"),
+
+            ("Create Clustergram",        self.createClustergram,  1, 2,
+             "Generate a clustergram heatmap from data"),
+
+            ("Validation Clusters",       self.mst,                2, 2,
+             "Run cluster-count validation across 5 metrics (k-means based, DBI, Dunn, PBM, Silhouette, or All). Saves CSV and plots to help pick K."),
+
+            ("Monoclustering Validation", self.monoVal,             3, 2,
+             "Validate mono-clustering solutions"),
+
+            ("Group Medians",             self.medians,             4, 2,
+             "Calculate group medians from raw data"),
+
+            ("Ensemble Clustering",       self.ensemble,            1, 3,
+             "Run ECCO"),
+
+            ("Peaks to Pathways",         self.P2P,                 2, 3,
+             "Creates a Peaks to Pathways compatible file for each cluster"),
+
+            ("Compound ID",               self.compound,            3, 3,
+             "Lookup compounds from Mummichog output. Select folder of mummichog_matched_compound_*.csv (run MummiBot on P2P files first)."),
+
+            ("CoOcc Heatmap",             self.cooccHeatmap,       4, 3,
+             "Creates heatmaps from the ensemble solution: the CoOcc matrix (EnsembleCoOcc.xlsx) and the number of clusters you choose; use the same data file as ensemble clustering."),
+
+            ("Selected Clusters Figure",  self.genSelClustFig,      1, 4,
+             "Makes a figure for specific clusters"),
+
+            ("Cluster Selection",         self.clusterSelection,    2, 4,
+             "Select clusters interactively"),
+
+            ("Heatmap Analyses",          self.heatmapAnalyses,     3, 4,
+             "Make a relative-intensity heatmap using ECCO-identified clusters"),
+
+            ("Build ANOVA Heatmap",       self.anovaHeatMap,        4, 4,
+             "Make a heatmap with ECCO results"),
+
+            ("CIs for t-tests",           self.CIsTtest,            1, 5,
+             "Create confidence intervals from t-test data"),
+
+            ("MST Optimization",         self.mstF,                 2, 5,
+             "Run MST validation (k-means based), suggest optimal K, then run ECCO ensemble with that K"),
+
+            ("Enzyme Look Up",            self.enzymeLookUp,        3, 5,
+             "Look up enzymes for found compounds"),
+
+            ("Metaboanalyst File Gen",    self.mfg,                 4, 5,
+             "Creates CSV files for MetaboAnalyst"),
+
+            ("MetaboBot",                 self.metaboBot,           1, 6,
+             "Automates running MetaboAnalyst"),
+
+            ("MummiBot",                  self.mummiBot,            2, 6,
+             "Automates running Mummichog"),
+
+            ("External Metrics",          self.externalOpt,         3, 6,
+             "Compares clustering solutions with Rand-index, Adj. Rand-index, normalized mutual info, adj. mutual info"),
+
+            ("VIP (MS/MS Comp.)",         self.progen,              4, 6,
+             "VIP MS/MS comparison"),
+
+            ("Gene -> Pathways",          self.gene2path,           1, 7,
+             "Look up KEGG pathways associated with genes"),
+
+            ("Help/Documentation",        self.helpOut,             2, 7,
+             "Opens the help wiki"),
+        ]
+
+        # Group by row and center each row inside the 4 button columns (1..4).
+        by_row = defaultdict(list)
+        for label, cmd, col, row, tip in buttons:
+            by_row[row].append((label, cmd, tip))
+
+        button_cols = [1, 2, 3, 4]
+        for row in sorted(by_row.keys()):
+            row_buttons = by_row[row]
+            n = len(row_buttons)
+            # Center rows within the 4 equal-width button columns (1..4).
+            # For n=3 this yields columns 1..3 (left-biased), which matches the
+            # visual centering when column 0 remains a smaller left padding column.
+            start_idx = (len(button_cols) - n) // 2
+            for i, (label, cmd, tip) in enumerate(row_buttons):
+                b = ttk.Button(self, text=label, style="RW.TButton", command=cmd)
+                b.grid(column=button_cols[start_idx + i], row=row, sticky=(N, S, E, W), padx=5, pady=5)
+                CreateToolTip(b, tip)
+
+    #  home  (now just delegates to _show_home)
+    def home(self):
+        self._show_home()
+
+    #  sub-page scaffold
+    def _sub_page(self, title):
+        """Clear frame, apply sub-page grid, draw title + home button."""
+        self._clear()
+        self._configure_sub_grid()
+        
+        ttk.Label(self, text=title,
+                  font=("TkHeadingFont", 28, "bold")).grid(
+            column=0, row=0, columnspan=5, pady=15)
+       
+        ttk.Button(self, text="Return to Home",
+                   command=self.home).grid(
+            column=0, row=9, columnspan=5, pady=10, padx=60, sticky='')
+
+    #  preproces
+    def preprocess(self):
+        filename     = filedialog.askopenfilename()
+        if not filename:
+            return
+        metab_data   = GB.fileCheck(file=filename)
+        metab_data_c = GB.fileCheck(file=filename)
+        metab_data_c = metab_data.drop(0, axis=0)
+        columns      = list(metab_data_c.columns)
+        metab_data_c = metab_data_c.drop(columns[0], axis=1)
+        metab_data_c = metab_data_c.drop(columns[-1], axis=1)
+        metab_data_c = metab_data_c.to_numpy()
+        data, toDelete = GB.dataCheck(metab_data_c)
+        for i in range(len(toDelete)):
+            toDelete[i] += 1
+        metab_data = metab_data.drop(toDelete)
+        metab_data.to_excel("pre_processed_data.xlsx", index=False)
+
+    #  createClustergram  
+    def createClustergram(self):
+        self._sub_page("Clustergram Input")
+    
+        def linkageOutput(*args):
+            self.sel_link = linkLB.curselection()
+            if not self.sel_link: return
+            curLink = linkageList[self.sel_link[0]]
+            if curLink == 'ward':
+                _refill(distLB, [distList[0]])
+            else:
+                _refill(distLB, distList)
+    
+        def submit(*args):
+            try:
+                norm_sel      = normList[normLB.curselection()[0]]
+                scale_sel     = scaleList[scaleLB.curselection()[0]]
+                transform_sel = transformList[transformLB.curselection()[0]]
+                link_sel      = linkageList[linkLB.curselection()[0]]
+                dist_sel      = distList[distLB.curselection()[0]]
+                color_sel     = colorList[colorLB.curselection()[0]]
+                groupOrd      = [g for g in grpVar.get().split(' ') if g.strip()]
+                if not groupOrd:
+                    groupOrd = ['1']
+    
+                if norm_sel == 'Normalize':
+                    GU.createClustergram(1,
+                                         linkFunc  = link_sel,
+                                         distMet   = dist_sel,
+                                         cmap      = color_sel,
+                                         colOrder  = groupOrd,
+                                         transform = transform_sel,
+                                         scale     = 'NormStand')
+                else:
+                    n = 2 if len(groupOrd) > 1 else 0
+                    GU.createClustergram(n,
+                                         linkFunc  = link_sel,
+                                         distMet   = dist_sel,
+                                         cmap      = color_sel,
+                                         colOrder  = groupOrd,
+                                         transform = transform_sel,
+                                         scale     = scale_sel)
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+    
+        normList      = config.normList
+        scaleList     = config.scaleList
+        transformList = config.transformList
+        linkageList   = config.linkageList
+        distList      = config.distList
+        colorList     = config.colorList
+    
+        for col, lbl in [(1,"Linkage"),(2,"Distance"),(3,"Color-Map"),
+                         (4,"Transform"),(5,"Scale"),(6,"Normalize")]:
+            ttk.Label(self, text=lbl,
+                      font=("TkHeadingFont", 11)).grid(column=col, row=1, pady=3)
+    
+        linkLB      = _lb(self, col=1)
+        distLB      = _lb(self, col=2)
+        colorLB     = _lb(self, col=3)
+        transformLB = _lb(self, col=4)
+        scaleLB     = _lb(self, col=5)
+        normLB      = _lb(self, col=6)
+    
+        _refill(linkLB,      linkageList)
+        _refill(distLB,      distList)
+        _refill(colorLB,     colorList)
+        _refill(transformLB, transformList)
+        _refill(scaleLB,     scaleList)
+        _refill(normLB,      normList)
+    
+        self.update_idletasks()
+    
+        linkLB.bind('<Double-1>', linkageOutput)
+    
+        ttk.Label(self, text="Group order (space separated):",
+                  font=("TkHeadingFont", 11)).grid(
+            column=1, row=3, columnspan=3, sticky='w', padx=10)
+        grpVar = tk.StringVar()
+        ttk.Entry(self, textvariable=grpVar).grid(
+            column=1, row=4, columnspan=3, sticky='ew', padx=10)
+        ttk.Button(self, text="Submit", command=submit).grid(
+            column=4, row=4, padx=10, sticky='ew')
+        ttk.Button(self, text="ColorMap options",
+                   command=lambda: webbrowser.open(
+                       'https://matplotlib.org/stable/tutorials/colors/colormaps.html')
+                   ).grid(column=5, row=4, columnspan=2, padx=10, sticky='ew')
+           
+    #  clusterSelection                                                    
+    def clusterSelection(self):
+        self._sub_page("Cluster Selection")
+
+        def linkageOutput(*args):
+            global selection
+            selection = distLB.curselection()
+            curLink   = linkageList[selection[0]]
+            _refill(sampleLB, [distList[0]] if curLink == 'ward' else distList)
+
+        def colorMap(*args):
+            global selection1
+            selection1 = sampleLB.curselection()
+            _refill(colorLB, colorList)
+
+        def dataTransform(*args):
+            global selection2
+            selection2 = colorLB.curselection()
+            _refill(transformLB, transformList)
+
+        def dataScale(*args):
+            global selection3
+            selection3 = transformLB.curselection()
+            _refill(scaleLB, scaleList)
+
+        def dataNorm(*args):
+            global selection4
+            selection4 = scaleLB.curselection()
+            _refill(normLB, normList)
+            submit_btn.grid(column=4, row=4, columnspan=3,
+                            padx=10, sticky=(E, W))
+
+        def submit(*args):
+            norm      = normList[normLB.curselection()[0]]
+            dist      = distList[selection1[0]]
+            link      = linkageList[selection[0]]
+            color     = colorList[selection2[0]]
+            transform = transformList[selection3[0]]
+            scale     = scaleList[selection4[0]]
+            config.colorNum = 0
+            groupOrd  = grpVar.get().split(',')
+            if norm == 'Normalize':
+                GU.selectClusters(link, dist, 1, colOrder=groupOrd,
+                                  transform=transform, scale='NormStand',
+                                  cmap=color)
+            else:
+                GU.selectClusters(link, dist,
+                                  transform=transform, scale=scale, cmap=color)
+
+        linkageList   = config.linkageList
+        distList      = config.distList
+        colorList     = config.colorList
+        transformList = config.transformList
+        scaleList     = config.scaleList
+        normList      = config.normList
+
+        for col, lbl in [(1,"Linkage"),(2,"Distance"),(3,"Color-Map"),
+                         (4,"Transform"),(5,"Scale"),(6,"Normalize?")]:
+            ttk.Label(self, text=lbl,
+                      font=("TkHeadingFont", 11)).grid(column=col, row=1, pady=3)
+
+        distLB = _lb(self, 2); sampleLB = _lb(self, 3)
+        colorLB = _lb(self, 4); transformLB = _lb(self, 5)
+        scaleLB = _lb(self, 6); normLB = _lb(self, 7)
+
+        _refill(distLB, linkageList)
+
+        distLB.bind('<Double-1>',      linkageOutput)
+        sampleLB.bind('<Double-1>',    colorMap)
+        colorLB.bind('<Double-1>',     dataTransform)
+        transformLB.bind('<Double-1>', dataScale)
+        scaleLB.bind('<Double-1>',     dataNorm)
+
+        ttk.Label(self, text="Group order (normalization col first, separate by a space)",
+                  font=("TkHeadingFont", 11)).grid(
+            column=1, row=3, columnspan=3, sticky=W, padx=10)
+        grpVar = tk.StringVar()
+        ttk.Entry(self, textvariable=grpVar).grid(
+            column=1, row=4, columnspan=3, sticky=(E, W), padx=10)
+        submit_btn = ttk.Button(self, text="Submit", command=submit)
+
+
+    #  medians
+    def medians(self):
+        self._sub_page("Group Medians")
+        var1 = IntVar()
+        ttk.Checkbutton(self, text="Remove Zeros?", variable=var1).grid(
+            column=1, row=2, columnspan=3, pady=10)
+        ttk.Button(self, text="Select file",
+                   command=lambda: GU.groupMedians(rmZeros=var1.get())).grid(
+            column=1, row=3, columnspan=3, sticky=(E, W), padx=60)
+
+    #  linkages
+    def linkages(self):
+        self._sub_page("Linkage Comparison")
+
+        def distFunc(*args):
+            global distanceMet
+            distanceMet = self.dist.get()
+            values = [1,2,3,4] if distanceMet == 'euclidean' else [1,2,3]
+            num_comps = StringVar()
+            self.numComps = ttk.Combobox(self, values=values, textvariable=num_comps)
+            self.numComps.bind('<<ComboboxSelected>>', numCompsFunc)
+            self.numComps.grid(column=2, row=2, padx=5, pady=5)
+
+        def numCompsFunc(*args):
+            global numberComps
+            numberComps = self.numComps.get()
+            linkOpts = ['ward-single','ward-complete','ward-average',
+                        'single-complete','single-average','complete-average',
+                        'ward-single-complete','ward-single-average',
+                        'ward-complete-average','single-complete-average',
+                        'ward-single-complete-average']
+            if numberComps == '1':
+                value = (['ward','single','complete','average']
+                         if distanceMet == 'euclidean'
+                         else ['single','complete','average'])
+            elif numberComps == '2':
+                value = linkOpts[0:6] if distanceMet == 'euclidean' else linkOpts[3:6]
+            elif numberComps == '3':
+                value = linkOpts[6:10] if distanceMet == 'euclidean' else [linkOpts[9]]
+            else:
+                value = [linkOpts[10]]
+            lv = StringVar()
+            self.linkage = ttk.Combobox(self, values=value, textvariable=lv)
+            self.linkage.bind('<<ComboboxSelected>>', linkageComp)
+            self.linkage.grid(column=3, row=2, padx=5, pady=5)
+
+        def linkageComp(*args):
+            global linkList
+            linkList  = []
+            sel       = self.linkage.get()
+            first     = 0
+            for i, c in enumerate(sel):
+                if c == '-':
+                    linkList.append(sel[first:i]); first = i+1
+                elif i == len(sel)-1:
+                    linkList.append(sel[first:])
+            if not linkList:
+                linkList = [sel]
+            _refill(transformLB, transformList)
+
+        def dataScale(*args):
+            global dataTrans
+            dataTrans = transformList[transformLB.curselection()[0]]
+            _refill(scaleLB, scaleList)
+
+        def submit(*args):
+            scale_ = scaleList[scaleLB.curselection()[0]]
+            file   = filedialog.askopenfilename()
+            GU.linkageComparison(file, numberComps, linkList,
+                                 distanceMet, dataTrans, scale_)
+
+        transformList = config.transformList
+        scaleList     = config.scaleList
+        distList      = config.distList
+
+        ttk.Label(self, text="Distance measure",
+                  font=("TkHeadingFont",12)).grid(column=1, row=1, pady=5)
+        ttk.Label(self, text="# comparisons",
+                  font=("TkHeadingFont",12)).grid(column=2, row=1, pady=5)
+        ttk.Label(self, text="Linkage functions",
+                  font=("TkHeadingFont",12)).grid(column=3, row=1, pady=5)
+        ttk.Label(self, text="Transform",
+                  font=("TkHeadingFont",12)).grid(column=1, row=3, pady=5)
+        ttk.Label(self, text="Scale",
+                  font=("TkHeadingFont",12)).grid(column=2, row=3, pady=5)
+
+        distances = StringVar()
+        self.dist = ttk.Combobox(self, values=distList, textvariable=distances)
+        self.dist.bind('<<ComboboxSelected>>', distFunc)
+        self.dist.grid(column=1, row=2, padx=5, pady=5)
+
+        transformLB = _lb(self, 4, col=1)
+        scaleLB     = _lb(self, 4, col=2)
+        transformLB.bind('<Double-1>', dataScale)
+
+        ttk.Button(self, text="Submit", command=submit).grid(
+            column=1, row=5, columnspan=3, sticky=(E,W), padx=60, pady=5)
+
+    #  heatmapAnalyses
+
+    def heatmapAnalyses(self):
+        self._sub_page("Heatmap Input")
+
+        def linkageOutput(*args):
+            global selection
+            selection = distLB.curselection()
+            _refill(sampleLB,
+                    [distList[0]] if linkageList[selection[0]]=='ward' else distList)
+
+        def colorMap(*args):
+            global selection1
+            selection1 = sampleLB.curselection()
+            _refill(colorLB, colorList)
+
+        def dataTransform(*args):
+            global selection2
+            selection2 = colorLB.curselection()
+            _refill(transformLB, transformList)
+
+        def dataScale(*args):
+            global selection3
+            selection3 = transformLB.curselection()
+            _refill(scaleLB, scaleList)
+
+        def dataNorm(*args):
+            global selection4
+            selection4 = scaleLB.curselection()
+            _refill(normLB, normList)
+            submit_btn.grid(column=4, row=4, columnspan=3,
+                            padx=10, sticky=(E,W))
+
+        def submit(*args):
+            norm      = normList[normLB.curselection()[0]]
+            dist      = distList[selection1[0]]
+            link      = linkageList[selection[0]]
+            color     = colorList[selection2[0]]
+            transform = transformList[selection3[0]]
+            scale     = scaleList[selection4[0]]
+            groupOrd  = grpVar.get().split(',')
+            if norm == 'Normalize':
+                GU.heatmapAnalysis(link, dist, color, 1,
+                                   colOrder=groupOrd,
+                                   transform=transform, scale='NormStand')
+            else:
+                GU.heatmapAnalysis(link, dist, color, 0,
+                                   transform=transform, scale=scale)
+
+        linkageList   = config.linkageList
+        distList      = config.distList
+        colorList     = config.colorList
+        transformList = config.transformList
+        scaleList     = config.scaleList
+        normList      = config.normList
+
+        for col, lbl in [(1,"Linkage"),(2,"Distance"),(3,"Color-Map"),
+                         (4,"Transform"),(5,"Scale"),(6,"Normalize?")]:
+            ttk.Label(self, text=lbl,
+                      font=("TkHeadingFont",11)).grid(column=col, row=1, pady=3)
+
+        # place each Listbox directly under its header label to keep
+        # the inputs visually aligned with their titles
+        distLB      = _lb(self, 2, col=1)  # Linkage
+        sampleLB    = _lb(self, 2, col=2)  # Distance
+        colorLB     = _lb(self, 2, col=3)  # Color-Map
+        transformLB = _lb(self, 2, col=4)  # Transform
+        scaleLB     = _lb(self, 2, col=5)  # Scale
+        normLB      = _lb(self, 2, col=6)  # Normalize?
+
+        _refill(distLB, linkageList)
+
+        distLB.bind('<Double-1>',      linkageOutput)
+        sampleLB.bind('<Double-1>',    colorMap)
+        colorLB.bind('<Double-1>',     dataTransform)
+        transformLB.bind('<Double-1>', dataScale)
+        scaleLB.bind('<Double-1>',     dataNorm)
+
+        ttk.Label(self, text="Group order (normalization col first, separate by a space)",
+                  font=("TkHeadingFont",11)).grid(
+            column=1, row=3, columnspan=3, sticky=W, padx=10)
+        grpVar = tk.StringVar()
+        ttk.Entry(self, textvariable=grpVar).grid(
+            column=1, row=4, columnspan=3, sticky=(E,W), padx=10)
+        submit_btn = ttk.Button(self, text="Submit", command=submit)
+
+    #  thin-delegate methods                                               
+    def compound(self):   GU.compoundMatchUp(typeFile='all')
+    def integrity(self):
+        f = filedialog.askopenfilename()
+        if f: GU.dataIntegrity(f)
+    def mstF(self):
+        numClust = self._run_with_busy(
+            "Working... running MST optimization.",
+            lambda: GU.MST(self, func='ensemble')
+        )
+        if numClust is not None:
+            GU.ensembleClustering(optNum=int(numClust))
+    def P2P(self):        GU.peaksToPathways()
+    def helpOut(self):    webbrowser.open('https://github.com/hisl6802/ClusteringToolbox/wiki')
+    def progen(self):     GU.progenesis()
+    def gene2path(self):  GU.geneToPathway()
+
+    #  ECCO
+    def ensemble(self):
+        self._sub_page("Ensemble Clustering with Optimization")
+
+        def ensembleCMap(*args):
+            global cMapSel
+            cMapSel = colorList[colorMapLB.curselection()[0]]
+            _refill(transformLB, transformList)
+
+        def ensembleTransform(*args):
+            global transSel
+            transSel = transformList[transformLB.curselection()[0]]
+            _refill(scaleLB, scaleList)
+
+        def ensembleScale(*args):
+            global scaleSel
+            scaleSel = scaleList[scaleLB.curselection()[0]]
+            submit_btn.grid(column=1, row=5, columnspan=3,
+                            sticky=(E,W), padx=60, pady=5)
+
+        colorList     = config.colorList
+        transformList = config.transformList
+        scaleList     = config.scaleList
+
+        for col, lbl in [(1,"ColorMap"),(2,"Transform"),(3,"Scale")]:
+            ttk.Label(self, text=lbl,
+                      font=("TkHeadingFont",16)).grid(column=col, row=1, pady=5)
+
+        colorMapLB  = _lb(self, 2, col=1)
+        transformLB = _lb(self, 2, col=2)
+        scaleLB     = _lb(self, 2, col=3)
+        _refill(colorMapLB, colorList)
+
+        colorMapLB.bind('<Double-1>',  ensembleCMap)
+        transformLB.bind('<Double-1>', ensembleTransform)
+        scaleLB.bind('<Double-1>',     ensembleScale)
+
+        # checkbox to run Peaks->Pathways and Compound MatchUp cascade
+        self.run_p2p_cascade = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            self,
+            text="Also generate PeaksToPathways files and prompt for Mummichog results",
+            variable=self.run_p2p_cascade
+        ).grid(column=1, row=3, columnspan=3, pady=5, padx=5, sticky=(E, W))
+
+        def run_ensemble_and_cascade():
+            # run ensemble clustering with full optimization
+            result = GU.ensembleClusteringFullOpt(transform=transSel, scale=scaleSel)
+            try:
+                opt_k, out_dir = result
+            except Exception:
+                # older behavior: ignore if return value not unpackable
+                return
+
+            if not self.run_p2p_cascade.get():
+                return
+
+            # attempt to run PeaksToPathways using the same raw file
+            raw_file = getattr(config, 'last_ensemble_file', None)
+            if raw_file and out_dir:
+                GU.peaksToPathways(raw_file=raw_file, clusters_dir=out_dir)
+
+            # prompt once for a folder of Mummichog results and run Compound MatchUp
+            messagebox.showinfo(
+                title="Mummichog results",
+                message=(
+                    "Select the folder containing your Mummichog matched-compound CSV files\n"
+                    "(for example, the output folder from MummiBot)."
+                ),
+            )
+            mummi_dir = filedialog.askdirectory()
+            if mummi_dir:
+                GU.compoundMatchUp(typeFile='all', file=mummi_dir)
+
+        submit_btn = ttk.Button(
+            self, text="Submit",
+            command=run_ensemble_and_cascade)
+
+        for col, (label, url) in enumerate([
+            ("ColorMap Options",
+             'https://matplotlib.org/stable/tutorials/colors/colormaps.html'),
+            ("Transform Options",
+             'https://github.com/hisl6802/Transformation-and-Scaling/wiki/Transformations'),
+            ("Scale Options",
+             'https://github.com/hisl6802/Transformation-and-Scaling/wiki/Scaling')],
+                start=1):
+            ttk.Button(self, text=label,
+                       command=lambda u=url: webbrowser.open(u)).grid(
+                column=col, row=4, padx=5, pady=5, sticky=(E,W))
+
+    def cooccHeatmap(self):
+        self._sub_page('CoOcc Heatmap')
+
+        coocc_var = tk.StringVar(value='')
+        data_var = tk.StringVar(value='')
+        k_var = tk.StringVar(value='4')
+
+        ttk.Label(
+            self,
+            text='Number of clusters (1–10):',
+            font=('TkHeadingFont', 12),
+        ).grid(column=1, row=1, sticky=W, padx=10, pady=6)
+
+        ttk.Combobox(
+            self,
+            textvariable=k_var,
+            values=[str(i) for i in range(1, 11)],
+            width=6,
+            state='readonly',
+        ).grid(column=2, row=1, sticky=W, padx=5, pady=6)
+
+        ttk.Label(
+            self,
+            text='EnsembleCoOcc.xlsx:',
+            font=('TkHeadingFont', 12),
+        ).grid(column=1, row=2, sticky=W, padx=10, pady=4)
+
+        def browse_coocc():
+            p = filedialog.askopenfilename(
+                title='Select EnsembleCoOcc.xlsx',
+                filetypes=[
+                    ('Excel', '*.xlsx'),
+                    ('All files', '*.*'),
+                ],
+            )
+            if p:
+                coocc_var.set(p)
+
+        ttk.Entry(
+            self, textvariable=coocc_var, width=56,
+        ).grid(column=1, row=3, columnspan=2, sticky=(E, W), padx=10, pady=2)
+        ttk.Button(self, text='Browse…', command=browse_coocc).grid(
+            column=3, row=3, padx=5, pady=2, sticky=W,
+        )
+
+        ttk.Label(
+            self,
+            text='Data file (same as ensemble clustering):',
+            font=('TkHeadingFont', 12),
+        ).grid(column=1, row=4, sticky=W, padx=10, pady=4)
+
+        def browse_data():
+            p = filedialog.askopenfilename(
+                title='Select ensemble clustering data file',
+                filetypes=[
+                    ('Excel', '*.xlsx'),
+                    ('CSV', '*.csv'),
+                    ('All files', '*.*'),
+                ],
+            )
+            if p:
+                data_var.set(p)
+
+        ttk.Entry(
+            self, textvariable=data_var, width=56,
+        ).grid(column=1, row=5, columnspan=2, sticky=(E, W), padx=10, pady=2)
+        ttk.Button(self, text='Browse…', command=browse_data).grid(
+            column=3, row=5, padx=5, pady=2, sticky=W,
+        )
+
+        def run_coocc():
+            self._run_with_busy(
+                'Working… CoOcc heatmaps.',
+                lambda: GU.cooccHeatmap(
+                    k_var.get(), coocc_var.get(), data_var.get(),
+                ),
+            )
+
+        ttk.Button(self, text='Run', command=run_coocc).grid(
+            column=1, row=6, columnspan=2, sticky=(E, W), padx=60, pady=15,
+        )
+
+    #  MST
+    def mst(self):
+        self._sub_page("Validation Clusters (5 metrics)")
+
+        def transType(*args):
+            global transform
+            transform = transformList[transLB.curselection()[0]]
+            _refill(scaleLB, scaleList)
+
+        def scaleType(*args):
+            global scale
+            scale = scaleList[scaleLB.curselection()[0]]
+            _refill(valLB, valList)
+
+        def valType(*args):
+            sel = valList[valLB.curselection()[0]]
+            self._run_with_busy(
+                f"Working... running {sel} validation.",
+                lambda: GU.MST(self, transform=transform, scale=scale, func=sel)
+            )
+
+        transformList = config.transformList
+        scaleList     = config.scaleList
+        valList       = ('k-means based','DBI','Dunn','PBM','Silhouette','All')
+
+        for col, lbl in [(1,"Transform"),(2,"Scale"),(3,"Validation")]:
+            ttk.Label(self, text=lbl,
+                      font=("TkHeadingFont",14)).grid(column=col, row=1, pady=5)
+
+        transLB = _lb(self, 2, col=1)
+        scaleLB = _lb(self, 2, col=2)
+        valLB   = _lb(self, 2, col=3)
+        _refill(transLB, transformList)
+
+        transLB.bind('<Double-1>', transType)
+        scaleLB.bind('<Double-1>', scaleType)
+        valLB.bind('<Double-1>',   valType)
+
+    #  genSelClustFig                                                      
+    def genSelClustFig(self):
+        self._sub_page("Selected Clusters Figure")
+        colorList = config.colorList
+        ttk.Label(self, text="Select ColorMap:",
+                  font=("TkHeadingFont",14)).grid(column=1, row=1, columnspan=3)
+        cmap_lb = _lb(self, 2, col=1, colspan=3)
+        _refill(cmap_lb, colorList)
+        cmap_lb.bind('<Double-1>',
+                     lambda *_: GB.createHeatmapFig(
+                         clMap=colorList[cmap_lb.curselection()[0]]))
+
+
+    #  anovaHeatMap
+    def anovaHeatMap(self):
+        self._sub_page("ANOVA Heatmap")
+
+        def transformAH(*args):
+            global cMap
+            cMap = colorList[colorMapLB.curselection()[0]]
+            _refill(transformLB, transformList)
+
+        def scaleAHMP(*args):
+            global transform
+            transform = transformList[transformLB.curselection()[0]]
+            _refill(scaleLB, scaleList)
+            submit_btn.grid(column=1, row=5, columnspan=3,
+                            sticky=(E,W), padx=60, pady=5)
+
+        colorList     = config.colorList
+        transformList = config.transformList
+        scaleList     = config.scaleList
+
+        for col, lbl in [(1,"ColorMap"),(2,"Transform"),(3,"Scale")]:
+            ttk.Label(self, text=lbl,
+                      font=("TkHeadingFont",16)).grid(column=col, row=1, pady=5)
+
+        colorMapLB  = _lb(self, 2, col=1)
+        transformLB = _lb(self, 2, col=2)
+        scaleLB     = _lb(self, 2, col=3)
+        _refill(colorMapLB, colorList)
+
+        colorMapLB.bind('<Double-1>',  transformAH)
+        transformLB.bind('<Double-1>', scaleAHMP)
+
+        submit_btn = ttk.Button(
+            self, text="Submit",
+            command=lambda: GU.anovaHM(
+                transform=transform,
+                scale=scaleList[scaleLB.curselection()[0]],
+                cMap=cMap))
+
+
+    #  enzymeLookUp                                                     
+    def enzymeLookUp(self):
+        self._sub_page("Enzyme Look Up")
+        numHM = tuple(range(1, 15))
+        ttk.Label(self, text="Number of Heatmap sheets:",
+                  font=("TkHeadingFont",14)).grid(column=1, row=1, columnspan=3)
+        lb = _lb(self, 2, col=1, colspan=3)
+        _refill(lb, numHM)
+        lb.bind('<Double-1>',
+                lambda *_: GU.enzymeLookUp(
+                    numSheets=numHM[lb.curselection()[0]]))
+
+
+    #  CIsTtest
+    def CIsTtest(self):
+        self._sub_page("Confidence Intervals from t-tests")
+
+        def submitNumSamps(*args):
+            global numSampsSel
+            numSampsSel = numSamps[numSampsList.curselection()[0]]
+            submit_btn.grid(column=1, row=5, columnspan=3,
+                            sticky=(E,W), padx=60, pady=5)
+
+        numSamps = tuple(range(1, 101))
+        ttk.Label(self, text="Samples per group:",
+                  font=("TkHeadingFont",13)).grid(column=1, row=1, columnspan=3)
+        numSampsList = _lb(self, 2, col=1, colspan=3)
+        _refill(numSampsList, numSamps)
+        numSampsList.bind('<Double-1>', submitNumSamps)
+
+        ttk.Label(self, text="Confidence level (e.g. 95):",
+                  font=("TkHeadingFont",13)).grid(column=1, row=3, columnspan=3)
+        self.conf = tk.StringVar()
+        ttk.Entry(self, textvariable=self.conf).grid(
+            column=1, row=4, columnspan=3, sticky=(E,W), padx=60)
+
+        submit_btn = ttk.Button(
+            self, text="Submit",
+            command=lambda: GU.confidenceIntervals(
+                numSampsSel, confidenceLevel=self.conf.get()))
+
+    #  normality check                                                         
+    def normalityC(self):
+        self._sub_page("Normality Check")
+
+        def transSelected(*args):
+            global curTrans
+            curTrans = transformList[transformLB.curselection()[0]]
+            _refill(scaleLB, scaleList)
+            submit_btn.grid(column=1, row=5, columnspan=3,
+                            sticky=(E,W), padx=60, pady=5)
+
+        transformList = config.transformList
+        scaleList     = config.scaleList
+
+        for col, lbl in [(1,"Transform"),(2,"Scale")]:
+            ttk.Label(self, text=lbl,
+                      font=("TkHeadingFont",14)).grid(column=col, row=1, pady=5)
+
+        transformLB = _lb(self, 2, col=1)
+        scaleLB     = _lb(self, 2, col=2)
+        _refill(transformLB, transformList)
+        transformLB.bind('<Double-1>', transSelected)
+
+        submit_btn = ttk.Button(
+            self, text="Submit",
+            command=lambda: GU.normalityCheck(
+                transform=curTrans,
+                scale=scaleList[scaleLB.curselection()[0]]))
+
+    #  mfg                                                                 
+    def mfg(self):
+        self._sub_page("Metaboanalyst File Generation")
+        options = ["Multi", "Uni", "All"]
+        ttk.Label(self, text="Select variant:",
+                  font=("TkHeadingFont",14)).grid(column=1, row=1, columnspan=3)
+        lb = _lb(self, 2, col=1, colspan=3)
+        _refill(lb, options)
+
+        def submitMFG(*args):
+            selected = options[lb.curselection()[0]]
+            file     = filedialog.askopenfilename()
+            if file:
+                GU.mfgUtil(fileName=file, variant=selected)
+
+        lb.bind('<Double-1>', submitMFG)
+
+    #  MetaboAnalyst Bot                                                           
+    def metaboBot(self):
+        self._sub_page("MetaboAnalyst 6.0 Bot")
+
+        def varFilt(*args):
+            global varSelect
+            varSelect = config.varianceFilters[varFiltLB.curselection()[0]]
+            _refill(sampNormLB, config.sampNorm)
+
+        def sampNorm(*args):
+            global sampleNormSelect
+            sampleNormSelect = config.sampNorm[sampNormLB.curselection()[0]]
+            _refill(transLB, config.transformList)
+
+        def transform(*args):
+            global transSelect
+            transSelect = config.transformList[transLB.curselection()[0]]
+            _refill(scaleLB, config.scaleList)
+
+        def scale(*args):
+            global scaleSelect
+            scaleSelect = config.scaleList[scaleLB.curselection()[0]]
+            _refill(analysisLB, config.typeAnalysis)
+
+        def submitMetabo(*args):
+            sel = config.typeAnalysis[analysisLB.curselection()[0]]
+            GU.metaboBot(analysis=sel, varianceFilter=varSelect,
+                         sampleNorm=sampleNormSelect,
+                         trans=transSelect, scale=scaleSelect)
+
+        for col, lbl in [(1,"Variance Filter"),(2,"Sample Norm"),
+                         (3,"Transform"),(4,"Scale"),(5,"Analysis")]:
+            ttk.Label(self, text=lbl,
+                      font=("TkHeadingFont",11)).grid(column=col, row=1, pady=3)
+
+        varFiltLB  = _lb(self, 2, col=1)
+        sampNormLB = _lb(self, 2, col=2)
+        transLB    = _lb(self, 2, col=3)
+        scaleLB    = _lb(self, 2, col=4)
+        analysisLB = _lb(self, 2, col=5)
+        _refill(varFiltLB, config.varianceFilters)
+
+        varFiltLB.bind('<Double-1>',  varFilt)
+        sampNormLB.bind('<Double-1>', sampNorm)
+        transLB.bind('<Double-1>',    transform)
+        scaleLB.bind('<Double-1>',    scale)
+        analysisLB.bind('<Double-1>', submitMetabo)
+
+
+    #  Mummichog Bot                                                            
+    def mummiBot(self):
+        self._sub_page("Mummichog Bot")
+
+        def modes(*args):
+            global selectedMode
+            selectedMode = config.modes[modesLB.curselection()[0]]
+            _refill(dbLB, config.mummidbs)
+
+        def submit(*args):
+            # use the mode (Positive / Negative) the user selected and the
+            # specific Mummichog database choice.
+            try:
+                mode = selectedMode
+            except NameError:
+                mode = config.modes[0]
+
+            try:
+                db_sel = config.mummidbs[dbLB.curselection()[0]]
+            except Exception:
+                db_sel = 'Mouse (KEGG)'
+
+            GU.mummiBot(lcMode=mode, db=db_sel)
+
+        ttk.Label(self, text="Select Mode and Database, then click Run. You will choose a folder of P2P CSV files; the bot will run each through Mummichog and download results.",
+                  wraplength=500).grid(column=1, row=1, columnspan=2, pady=(0, 10))
+        for col, lbl in [(1,"Mode"),(2,"Database")]:
+            ttk.Label(self, text=lbl,
+                      font=("TkHeadingFont",14)).grid(column=col, row=2, pady=5)
+
+        modesLB = _lb(self, 3, col=1)
+        dbLB    = _lb(self, 3, col=2)
+        _refill(modesLB, config.modes)
+
+        modesLB.bind('<Double-1>', modes)
+        dbLB.bind('<Double-1>',    submit)
+
+        ttk.Button(self, text="Run MummiBot", style="RW.TButton", command=submit).grid(
+            column=1, row=4, columnspan=2, pady=15)
+
+    #  externalOpt                                                         
+    def externalOpt(self):
+        self._sub_page("External Criteria Evaluation")
+
+        def transformation(*args):
+            global transSelection
+            transSelection = config.transformList[transformLB.curselection()[0]]
+            _refill(scaleLB, config.scaleList)
+
+        def scaling(*args):
+            global scaleSelection
+            scaleSelection = config.scaleList[scaleLB.curselection()[0]]
+            _refill(metricsLB, config.metrics)
+
+        def submitExternal(*args):
+            sel = config.metrics[metricsLB.curselection()[0]]
+            GU.externalCriteria(comp=sel,
+                                trans=transSelection,
+                                scale=scaleSelection)
+
+        for col, lbl in [(1,"Transformation"),(2,"Scale"),(3,"Criteria")]:
+            ttk.Label(self, text=lbl,
+                      font=("TkHeadingFont",14)).grid(column=col, row=1, pady=5)
+
+        transformLB = _lb(self, 2, col=1)
+        scaleLB     = _lb(self, 2, col=2)
+        metricsLB   = _lb(self, 2, col=3)
+        _refill(transformLB, config.transformList)
+
+        transformLB.bind('<Double-1>', transformation)
+        scaleLB.bind('<Double-1>',     scaling)
+        metricsLB.bind('<Double-1>',   submitExternal)
+
+
+    #  monoVal                                                             
+    def monoVal(self):
+        self._sub_page("Mono-clustering Optimization")
+
+
+        def dataTransform(*args):
+            global selection2
+            selection2 = optLB.curselection()
+            _refill(transformLB, transformList)
+
+        def dataScale(*args):
+            global selection3
+            selection3 = transformLB.curselection()
+            _refill(scaleLB, scaleList)
+            
+        def linkageOutput(*args):
+            global selection
+            selection = distLB.curselection()
+            _refill(sampleLB,
+                    [distList[0]] if linkageList[selection[0]]=='ward' else distList)
+
+        def optMet(*args):
+            global selection1
+            selection1 = sampleLB.curselection()
+            _refill(optLB, optList)
+
+        def upNumClust(*args):
+            global selection4
+            selection4 = scaleLB.curselection()
+            _refill(clustersLB, minMetab)
+
+        def submit(*args):
+            sel5      = clustersLB.curselection()
+            dist      = distList[selection1[0]]
+            link      = linkageList[selection[0]]
+            optimizer = optList[selection2[0]]
+            transform = transformList[selection3[0]]
+            scale     = scaleList[selection4[0]]
+            numClust  = minMetab[sel5[0]]
+            GU.validateMono(self, numClust, transform, scale,
+                            link, dist, optimizer)
+
+        linkageList   = config.linkageList
+        distList      = config.distList
+        optList       = config.optList
+        transformList = config.transformList
+        scaleList     = config.scaleList
+        minMetab      = tuple(range(3, 101))
+
+        for col, lbl in [(1,"Linkage"),(2,"Distance"),(3,"Opt. Metric"),
+                         (4,"Transform"),(5,"Scale"),(6,"Max clusters")]:
+            ttk.Label(self, text=lbl,
+                      font=("TkHeadingFont",11)).grid(column=col, row=1, pady=3)
+
+        distLB      = _lb(self, 2, col=1); sampleLB    = _lb(self, 2, col=2)
+        optLB       = _lb(self, 2, col=3); transformLB = _lb(self, 2, col=4)
+        scaleLB     = _lb(self, 2, col=5); clustersLB  = _lb(self, 2, col=6)
+
+        _refill(distLB, linkageList)
+
+        distLB.bind('<Double-1>',      linkageOutput)
+        sampleLB.bind('<Double-1>',    optMet)
+        optLB.bind('<Double-1>',       dataTransform)
+        transformLB.bind('<Double-1>', dataScale)
+        scaleLB.bind('<Double-1>',     upNumClust)
+
+        ttk.Button(self, text="Submit", command=submit).grid(
+            column=1, row=4, columnspan=6, sticky=(E,W), padx=60, pady=8)
+
+
+#  module-level helpers                                                
+def _refill(lb, items):
+    lb.delete(0, tk.END)
+    for i, item in enumerate(items):
+        lb.insert(i, item)
+
+def _lb(parent, *args, col=None, row=None, colspan=1, rowspan=1, height=8):
+    """
+    Create a Listbox with consistent defaults.
+
+    Backwards compatible with the older helper signature _lb(parent, col, row=2)
+    AND newer call-sites that pass (row, col=...) or (row, col=..., colspan=...).
+    """
+    if len(args) > 2:
+        raise TypeError("_lb() takes at most 3 positional arguments (parent, col|row, row)")
+
+    # Defaults
+    _row = 2 if row is None else row
+    _col = 1 if col is None else col
+
+    if len(args) == 1:
+        a0 = args[0]
+        if col is not None and row is None:
+            # _lb(parent, row, col=...)
+            _row = a0
+            _col = col
+        elif col is None and row is None:
+            # _lb(parent, col)
+            _col = a0
+            _row = 2
+        else:
+            # If row explicitly provided, treat positional as col
+            _col = a0
+    elif len(args) == 2:
+        # _lb(parent, col, row)
+        _col, _row = args
+
+    lb = tk.Listbox(parent, height=height, exportselection=False)
+    lb.grid(column=_col, row=_row, columnspan=colspan, rowspan=rowspan,
+            sticky='nsew', padx=5, pady=5)
+    return lb
+
+
+#  entry point                                                         
 if __name__ == '__main__':
-	#launch application
-	root = tk.Tk()
-
-	#ask for the directory the user would like to save the files to. 
-	messagebox.showinfo(title="INFO",message="Please select directory where you would like the log and output files to be saved!")
-	#get directory where user would like to save the log and output files.
-	directory = filedialog.askdirectory()
-	os.chdir(directory)
-
-	app = JuneLabClusteringGUI(master=None)
-	app.master.minsize(200,200)
-	height = app.master.winfo_screenheight() - 400
-	width = (app.master.winfo_screenwidth())*0.9
-	width = int(width)
-	app.master.maxsize(900,900)
-	width = str(width)
-	height = str(height)
-	screenSize = width +'x' + height + '+0+100'
-	app.master.geometry("")
-	app.master.resizable(0,0)
-
-	app.master.title("Home")
-	app.mainloop()
+    root = tk.Tk()
+    root.minsize(700, 500)
+    root.title("Clustering Toolbox")
+    app = JuneLabClusteringGUI(master=root)
+    root.mainloop()

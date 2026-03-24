@@ -21,7 +21,7 @@ scaleList = ('None', 'Mean centering', 'Auto Scaling', 'Pareto Scaling', 'Range 
 linkageList = ('single','ward','complete','average')
 distList = ('euclidean','seuclidean','sqeuclidean','cosine','chebyshev','correlation','canberra','braycurtis','minkowski','cityblock')
 normList = ('Normalize','Do not')
-optList = ('Silhouette','Davies-Bouldin','Calinski-Harabasz')
+optList = ('Silhouette','Davies-Bouldin','Calinski-Harabasz','All')
 metrics = ('Rand-index', 'Adjusted Rand-index', 'Mono-clustering comparison','Normalized Mutual Info.','Adjusted Mutual Info.')
 
 ###mummichog DB's

@@ -5,42 +5,39 @@ The Clustering Toolbox available here was designed as a user interface that allo
 ## Ensemble Clustering combined with Clustering Optimization (ECCO)
 Ensemble clustering combined with Clustering Optimization or ECCO is the main functionality within the clustering toolbox. This form of ensemble clustering is discussed in our pre-print [pre-print](https://www.biorxiv.org/content/10.1101/2022.11.03.515009v1.abstract) and can be adapted for your preferences. ECCO is built for ensemble clustering solutions of agglomerative hierarcical clustering algorithms. 
 
-What is not included in the pre-print is related to the distance metrics of correlation square root (CS), correlation no square root (CNS), and pairwise (PW). The advantage of correlation metrics is that they weight inverse relationships and positive relationships equally due to the similarity of the pattern. For an example of ECCO with the correlation metrics, please see the Raman Spectroscopy extracellular matrix measures in [Brown et al.](https://doi.org/10.1038/s42003-025-08263-w).
-
 ## Data Pre-processing notes
 The Clustering Toolbox was built to mimic the pre-processing steps taken during untargeted metabolomics data analysis. We acknowledge that we do not provide all of the available pre-processing steps and recommend pre-processing prior to submission to UI and selecting 'None' and 'None' when prompted to select a transformation and scaling for your data. 
 
 ## Installation and set-up
 
-#### Make sure to have python installed on the command line and that pip is installed for ease of implementation.
+### Option A — Conda (recommended, especially on Windows)
 
-1. If you do not have python installed, install at [python.org](https://www.python.org/) and make sure to install pip to your command line.
-   
-2. Otherwise, proceed to next steps.
+The file `environment.yml` defines the **ECCO_env** environment (Python 3.11–3.14, conda-forge). It matches what the GUI actually imports (no TensorFlow/Jupyter bloat).
 
-### After Installation of python
-1.  Install git if needed
-   - `conda install git`
-     
-2. - `git clone git@github.com:kc032/JuneLabClusteringToolbox_fix.git`
-   - or Download zip file from the Code <> button above.
-  
-2. **Recommended**: Create a Conda environment for running the UI (see example below)
-   - `conda create --name ECCO_env`
+1. Clone or download this repository.
+2. From the project directory:
+   - `conda env create -f environment.yml`
    - `conda activate ECCO_env`
-  
-3. After activating the environment use pip to install packages for UI
-   - `conda install --yes --file requirements.txt`
-           This will take a while
-     
-4. Start UI
-   - `python JuneLabClusteringGUI.py`
-   - or `python3 JuneLabClusteringGUI.py`  
+3. Start the UI: `python JuneLabClusteringGUI.py`
 
-**NOTE:** You may need to install openpyxl if you get file won't read errors. 
+To share the environment on **Anaconda.org**: build the env locally, then `conda env export` (optionally from a clean env) and upload the YAML, or publish a package that documents `conda env create -f environment.yml`.
+
+To refresh after `environment.yml` changes: `conda env update -f environment.yml --prune`.
+
+If conda-forge does not yet offer your desired Python (e.g. 3.14) on your platform, edit `environment.yml` and set `python=3.12` or `python=3.11`, then run `conda env create` again.
+
+### Option B — pip only
+
+Use a recent Python (3.11+). Install dependencies with:
+
+- `pip install -r requirements.txt`
+
+`requirements.txt` uses **fpdf2** (PyPI name for the maintained `fpdf` API). Start the UI with `python JuneLabClusteringGUI.py`.
+
+**NOTE:** If Excel files fail to load, ensure **openpyxl** (and **xlrd** for older `.xls` if needed) are installed; they are listed in `environment.yml` and `requirements.txt`.
 
 ## Example Files
-The ExampleFiles directory contains **two example input files**. Please see documentation for other input files. 
+The ExampleFiles directory contains **two example input files**. Please see further documentation for other input files. 
 
 ## Troubleshooting
 Please submit an Issue in the Issues tab, and I will address as quickly as possible. 
