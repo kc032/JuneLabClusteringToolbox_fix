@@ -16,9 +16,9 @@ The file `environment.yml` defines the **ECCO_env** environment (Python 3.11–3
 
 1. Clone or download this repository.
 2. From the project directory:
-   - `conda env create -f environment.yml`
-   - `conda activate ECCO_env`
-3. Start the UI: `python JuneLabClusteringGUI.py`
+   - `conda env create -f environment.yml` or upload directly to Anaconda interface
+   - `conda activate ECCO_env` or open Anaconda prompt with the ECCO_env selected
+3. Navigate to the code location and start the UI: `python JuneLabClusteringGUI.py`
 
 To share the environment on **Anaconda.org**: build the env locally, then `conda env export` (optionally from a clean env) and upload the YAML, or publish a package that documents `conda env create -f environment.yml`.
 
