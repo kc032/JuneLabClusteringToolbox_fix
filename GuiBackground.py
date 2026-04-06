@@ -341,6 +341,30 @@ def detectColumns(data):
     return mz_col, rt_col
 
 
+def sample_labels_for_coocc_group_medians(metab_data, mz_col, rt_col):
+    '''
+    Group names for CoOcc heatmap columns when the data file is a group-medians
+    matrix: Excel row 1 is read as pandas column headers, and those headers are
+    the group names (not a second label row under the header).
+    '''
+    labels = []
+    k = 0
+    for c in metab_data.columns:
+        if c in (mz_col, rt_col):
+            continue
+        k += 1
+        name = str(c).strip()
+        if (
+            not name
+            or name.lower() in ('nan', 'none')
+            or name.lower().startswith('unnamed')
+        ):
+            labels.append(f'Group_{k}')
+        else:
+            labels.append(name)
+    return labels
+
+
 ###------------------------- Distance metrics ------------------------------
 
 # scipy >= 1.11: SpearmanrResult uses .statistic (not .correlation)
@@ -2770,73 +2794,68 @@ def coOccMonoComp(labels, labelsCoOcc, distLink):
         Figure of the comparison of clustering solutions. 
     '''
 
-    #create the plot object for specific plotting. 
     n = len(labels)
-    
-    fig, ax = plt.subplots(n, 3, figsize=(8,12))
-    fig.tight_layout(pad=2)
+    n_rows = n + 1
+    plt.figure(figsize=(8, 12))
+
     x = np.linspace(0.0, 1.0, 100)
-    rgb = mpl.colormaps['Blues'](x)[np.newaxis, :, :3]
+    rgb = mpl.colormaps['Reds'](x)[np.newaxis, :, :3]
 
-    #comparison of the clustering results
     compCoOcc_orig = np.zeros((n, 2))
-    
     for i in range(n):
-        compCoOcc_orig[i,0] = metrics.rand_score(labelsCoOcc,labels[i])
-        compCoOcc_orig[i,1] = metrics.adjusted_rand_score(labelsCoOcc,labels[i])
+        compCoOcc_orig[i, 0] = metrics.rand_score(labelsCoOcc, labels[i])
+        compCoOcc_orig[i, 1] = metrics.adjusted_rand_score(labelsCoOcc, labels[i])
 
-    #create the labels list of interest for text, rand, and adj_rand comps
     text_list = [(3 * i) + 1 for i in range(n)]
     rand_list = [(3 * i) + 2 for i in range(n)]
-    adj_list =  [(3 * i) + 3 for i in range(n)]
+    adj_list = [(3 * i) + 3 for i in range(n)]
     count = -1
-    
-    for i in range(1,(compCoOcc_orig.shape[0]*3)+2):
-        ax = plt.subplot(compCoOcc_orig.shape[0]+1,3,i)
-        
-        #remove the spines
-        ax.spines[['right', 'top','left','bottom']].set_visible(False)
-       
-        #remove the tick markers
-        ax.tick_params(left = False,
-                       bottom=False,
-                       right=False,
-                       labelbottom=False,
-                       labelleft=False
-                       )
 
-        if i in text_list:
-            #adding the hyperparameter set to the graph
-            count += 1
-            ax.text(0.3,0.4,distLink[count][0],fontsize=14,font="Arial")
-            ax.text(0.3,0.2,distLink[count][1],fontsize=14,font="Arial")
+    # Panels 1 .. 3n: bubble grid (no axes). Bottom row: blank | Rand colorbar | ARI colorbar only.
+    for i in range(1, n_rows * 3 + 1):
+        ax = plt.subplot(n_rows, 3, i)
+        if i <= n * 3:
+            ax.axis('off')
+            if i in text_list:
+                count += 1
+                ax.text(0.3, 0.4, distLink[count][0], fontsize=14, font='Arial')
+                ax.text(0.3, 0.2, distLink[count][1], fontsize=14, font='Arial')
+            elif i in rand_list:
+                ri = float(compCoOcc_orig[count, 0])
+                c_idx = int(np.clip(int(ri * 100) - 1, 0, 99))
+                ax.scatter(
+                    0.1, 0.1,
+                    s=ri * 4500 + 500,
+                    alpha=0.7,
+                    c=tuple(rgb[0, c_idx, :]),
+                )
+                ax.text(0.099, 0.09925, f'{ri:.2f}', fontsize=14, font='Arial')
+            elif i in adj_list:
+                ari = float(compCoOcc_orig[count, 1])
+                c_idx = int(np.clip(int(ari * 49.5 + 49.5), 0, 99))
+                ax.scatter(
+                    0.1, 0.1,
+                    s=ari * 2250 + 2750,
+                    alpha=0.7,
+                    c=tuple(rgb[0, c_idx, :]),
+                )
+                ax.text(0.099, 0.09925, f'{ari:.2f}', fontsize=14, font='Arial')
+        elif i == n * 3 + 1:
+            ax.axis('off')
+        elif i == n * 3 + 2:
+            norm_r = mpl.colors.Normalize(vmin=0, vmax=1)
+            mpl.colorbar.ColorbarBase(
+                ax, cmap='Reds', norm=norm_r, orientation='vertical',
+            )
+        elif i == n * 3 + 3:
+            norm_a = mpl.colors.Normalize(vmin=-1, vmax=1)
+            mpl.colorbar.ColorbarBase(
+                ax, cmap='Reds', norm=norm_a, orientation='vertical',
+            )
 
-        elif i in rand_list: #adding the rand-index comps
-            ax.scatter(0.1,.1,s=(compCoOcc_orig[count,0]*(4500))+500,alpha=0.7,c=tuple(rgb[0,int(compCoOcc_orig[count,0]*100)-1,:]));
-            ax.text(0.099,0.09925,"{:.2f}".format(compCoOcc_orig[count,0]),fontsize=14,font="Arial")
-
-        elif i in adj_list: #adding the adjusted rand-index comps
-            ax.scatter(0.1,.1,s=(compCoOcc_orig[count,1]*(2250))+2750,alpha=0.7,c=tuple(rgb[0,int((compCoOcc_orig[count,0]*49.5)+49.5),:]));
-            ax.text(0.099,0.09925,"{:.2f}".format(compCoOcc_orig[count,1]),fontsize=14,font="Arial")
-
-
-    #create the color maps for the scale bars for both the rand index and the adjusted rand index.  
-    cmap = mpl.cm.cool
-    norm = mpl.colors.Normalize(vmin=0, vmax=1)
-
-    cb1 = mpl.colorbar.ColorbarBase(plt.subplot(compCoOcc_orig.shape[0]+1,3,(compCoOcc_orig.shape[0]+1)*3 - 1), cmap='Reds',
-                                    norm=norm,
-                                    orientation='vertical');
-
-    norm = mpl.colors.Normalize(vmin=-1, vmax=1)
-
-    cb1 = mpl.colorbar.ColorbarBase(plt.subplot(compCoOcc_orig.shape[0]+1,3,(compCoOcc_orig.shape[0]+1)*3), cmap='Reds',
-                                    norm=norm,
-                                    orientation='vertical');
-
-    #saving the plot of comparisons between mono-clustering solutions and the final ensemble solution. 
-    plt.savefig('ComparisonPlot_Ensem_monoClustSols.png', dpi=600, transparent=True)
-
+    plt.tight_layout(pad=2)
+    plt.savefig('ComparisonPlot_Ensem_monoClustSols.png', dpi=600)
+    plt.close()
     return
 
 def calinskiHarabasz_correlation(data, labels, dist):

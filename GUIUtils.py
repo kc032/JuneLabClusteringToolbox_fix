@@ -826,8 +826,10 @@ class GUIUtils:
         messagebox.showinfo(title="Success", message="Compound Matches has been generated!")
         return
     
-    def ensembleClusteringFullOpt(numClusts=10, transform='None', scale='None', file=None):
+    def ensembleClusteringFullOpt(numClusts=10, transform='None', scale='None', file=None,
+                                  colMap='viridis'):
         '''
+        colMap - matplotlib colormap name for ensemble clustermaps (figures 4–5).
         '''
 
         #log that the user called ensemble clustering function
@@ -978,14 +980,29 @@ class GUIUtils:
         opt_clusters, out_dir = GB.createEnsemDendrogramNew(
             coOcc, metab_data, data,
             norm=0, minMetabs=0, numClusts=len(parameters),
-            link='average', dist='euclidean', func="ensemble", colMap='viridis'
+            link='average', dist='euclidean', func="ensemble", colMap=colMap,
         )
         return opt_clusters, out_dir
 
-    def cooccHeatmap(num_clusters, coocc_file, data_file):
+    def cooccHeatmap(num_clusters, coocc_file, data_file, cmap='coolwarm',
+                     col_cluster=False, transform='None', scale='None'):
         '''
-        Build clustermaps from EnsembleCoOcc.xlsx, user-chosen K, and the
-        same Excel layout used for ensemble clustering (feature IDs + sample row).
+        Build clustermaps from EnsembleCoOcc.xlsx, user-chosen K, and a
+        group-medians matrix (.xlsx): row 1 = headers (group names in sample
+        columns), then one row per feature (same order as ensemble). If the
+        medians file has one extra row (Group Medians spacer under the header),
+        it is dropped automatically when N = CoOcc + 1.
+
+        transform / scale - same pipeline as ensemble clustering (applied to
+        the numeric group-median matrix for the heatmap only; Cluster*.xlsx
+        exports stay raw medians).
+
+        cmap - matplotlib colormap name (default coolwarm).
+        col_cluster - if True, seaborn also hierarchically clusters columns
+        (groups), adding a column dendrogram.
+
+        Each heatmap is shown in a matplotlib window after saving the PDF;
+        close the window to continue to the next plot, then the success dialog.
         '''
         logging.info(': User called CoOcc Heatmap.')
 
@@ -1012,9 +1029,16 @@ class GUIUtils:
         if not data_file or not os.path.isfile(data_file):
             messagebox.showerror(
                 title='Error',
-                message='Select the same data file used for ensemble clustering.',
+                message='Select the group medians matrix (.xlsx) for the heatmap.',
             )
             return
+
+        cmap = (cmap or 'coolwarm').strip() or 'coolwarm'
+        try:
+            plt.get_cmap(cmap)
+        except Exception:
+            logging.warning(': Unknown colormap %r, using coolwarm.', cmap)
+            cmap = 'coolwarm'
 
         try:
             ext = os.path.splitext(str(coocc_file))[1].lower()
@@ -1048,30 +1072,98 @@ class GUIUtils:
         if raw_data is None:
             return
 
-        metab_data = raw_data.drop(0, axis=0).reset_index(drop=True)
-        mz_col, rt_col = GB.detectColumns(metab_data)
-        sample_cols = [c for c in metab_data.columns if c not in (mz_col, rt_col)]
-        feature_names = metab_data[mz_col].astype(str).tolist()
+        n_co = int(coOcc.shape[0])
+        base = raw_data.copy().reset_index(drop=True)
 
-        header_row = raw_data.iloc[0]
-        sample_labels = [str(header_row[c]) for c in sample_cols]
-        if len(sample_labels) != len(sample_cols):
-            sample_labels = [str(c) for c in sample_cols]
+        # Medians .xlsx: header row = group names; all following rows should be
+        # features. Group Medians output also inserts a spacer row (out.loc[0])
+        # so the sheet often has N+1 rows vs N×N CoOcc from ensemble.
+        variants = [base]
+        if len(base) == n_co + 1:
+            variants.append(base.iloc[1:].reset_index(drop=True))
+            variants.append(base.iloc[:-1].reset_index(drop=True))
 
-        n_feat = len(feature_names)
-        if coOcc.shape[0] != n_feat:
+        metab_data = None
+        trim_note = None
+        for vi, cand in enumerate(variants):
+            if len(cand) != n_co:
+                continue
+            try:
+                mz_c, rt_c = GB.detectColumns(cand)
+                sc_try = [c for c in cand.columns if c not in (mz_c, rt_c)]
+                if not sc_try:
+                    continue
+                _ = cand[sc_try].astype(float)
+                metab_data = cand
+                if vi == 1:
+                    trim_note = 'top'
+                elif vi == 2:
+                    trim_note = 'bottom'
+                break
+            except Exception:
+                continue
+
+        if metab_data is None:
+            n_rows = len(base)
             messagebox.showerror(
                 title='Error',
                 message=(
-                    f'Co-occurrence size ({coOcc.shape[0]}) does not match '
-                    f'number of features in the data file ({n_feat}).'
+                    f'Co-occurrence matrix is {n_co}×{n_co} (features) but the '
+                    f'medians sheet has {n_rows} data row(s).\n\n'
+                    'Those counts must match. Common cases:\n'
+                    '• Group Medians saves an extra spacer row under the header '
+                    '(first row is not a metabolite). If you see N+1 rows, '
+                    'delete that row in Excel or regenerate medians.\n'
+                    '• Use the same feature list as ensemble: CoOcc was built '
+                    'from the raw matrix (sample names in row 1, group labels '
+                    'in row 2, then features). Medians should be one row per '
+                    'feature after the header row only.\n'
+                    '• Wrong or mixed file (different dataset).'
                 ),
             )
             return
 
+        if trim_note:
+            logging.info(
+                ': CoOcc heatmap: dropped %s data row of medians file so row '
+                'count matches CoOcc (N=%s).',
+                trim_note,
+                n_co,
+            )
+
+        mz_col, rt_col = GB.detectColumns(metab_data)
+        sample_cols = [c for c in metab_data.columns if c not in (mz_col, rt_col)]
+        feature_names = metab_data[mz_col].astype(str).tolist()
+
+        sample_labels = GB.sample_labels_for_coocc_group_medians(
+            metab_data, mz_col, rt_col,
+        )
+        if len(sample_labels) != len(sample_cols):
+            sample_labels = [str(c) for c in sample_cols]
+
         k_data = metab_data[sample_cols].astype(float)
         k_data.index = pd.Index(feature_names, name=mz_col)
         k_data.columns = sample_labels
+
+        transform = transform if transform else 'None'
+        scale = scale if scale else 'None'
+        vals = np.asarray(k_data.values, dtype=np.float64, order='C', copy=True)
+        try:
+            GB.transformations(vals, transform=transform, scale=scale, first='1')
+        except Exception as e:
+            logging.exception(': CoOcc heatmap transform/scale failed.')
+            messagebox.showerror(
+                title='Error',
+                message=(
+                    'Transform/scale failed on the median matrix.\n\n'
+                    f'{e}\n\n'
+                    'Try Transform/Scale = None, or match choices to ensemble.'
+                ),
+            )
+            return
+        k_vis = pd.DataFrame(
+            vals, index=k_data.index, columns=k_data.columns,
+        )
 
         link_mat = linkage(coOcc, method='average')
         labels = fcluster(link_mat, num_clusters, criterion='maxclust')
@@ -1086,26 +1178,33 @@ class GUIUtils:
             sc = [c for c in cur.columns if c not in (mz_col, rt_col)]
             out = cur[[mz_col] + sc + [rt_col]].copy()
             out = out.rename(columns={mz_col: 'Identities', rt_col: 'rt_med'})
-            cluster_path = os.path.join(out_dir, f'Cluster{i + 1}_names and labels.xlsx')
+            cluster_path = os.path.join(out_dir, f'Cluster{i + 1}.xlsx')
             GB.safeToExcel(out, cluster_path, index=False)
 
-        x_lbls = len(sample_labels) <= 35
+        # Show x labels when few columns, or when column clustering is on
+        # (group order changes and labels are needed to read the dendrogram).
+        x_lbls = (len(sample_labels) <= 35) or col_cluster
+
+        # Full feature IDs (same as Identities in Cluster*.xlsx); explicit list
+        # so labels are not truncated like yticklabels='auto' can do.
+        feature_y_labels = metab_data[mz_col].astype(str).tolist()
 
         try:
             g_feat = sns.clustermap(
-                k_data,
+                k_vis,
                 figsize=(8, 8),
                 row_linkage=link_mat,
-                col_cluster=False,
-                cmap='coolwarm',
+                col_cluster=col_cluster,
+                cmap=cmap,
                 linecolor='black',
-                yticklabels='auto',
+                yticklabels=feature_y_labels,
                 xticklabels=x_lbls,
                 cbar_pos=(0.01, 0.8, 0.025, 0.175),
             )
             g_feat.ax_heatmap.set_xlabel('')
             feat_pdf = os.path.join(out_dir, 'feature_labels_heatmap.pdf')
             g_feat.savefig(feat_pdf, dpi=600, transparent=True)
+            plt.show()
             plt.close(g_feat.fig)
         except Exception as e:
             logging.warning(f': CoOcc feature-label heatmap failed ({e})')
@@ -1118,11 +1217,11 @@ class GUIUtils:
         try:
             labels_y = [str(x) for x in labels]
             g_cl = sns.clustermap(
-                k_data,
+                k_vis,
                 figsize=(8, 8),
                 row_linkage=link_mat,
-                col_cluster=False,
-                cmap='coolwarm',
+                col_cluster=col_cluster,
+                cmap=cmap,
                 linecolor='black',
                 yticklabels=labels_y,
                 xticklabels=x_lbls,
@@ -1131,6 +1230,7 @@ class GUIUtils:
             g_cl.ax_heatmap.set_xlabel('')
             cl_pdf = os.path.join(out_dir, 'cluster_labels_heatmap.pdf')
             g_cl.savefig(cl_pdf, dpi=600, transparent=True)
+            plt.show()
             plt.close(g_cl.fig)
         except Exception as e:
             logging.warning(f': CoOcc cluster-label heatmap failed ({e})')
@@ -1140,11 +1240,18 @@ class GUIUtils:
             )
             return
 
+        extra = ''
+        if trim_note == 'top':
+            extra = '\n\n(Top data row of the medians file was skipped so it matches CoOcc.)'
+        elif trim_note == 'bottom':
+            extra = '\n\n(Bottom data row of the medians file was skipped so it matches CoOcc.)'
         messagebox.showinfo(
             title='Success',
             message=(
-                f'Saved heatmaps and Cluster1–Cluster{len(uniq)}.xlsx next to:\n'
-                f'{coocc_file}'
+                f'Saved 2 heatmaps + Cluster1–Cluster{len(uniq)}.xlsx next to:\n'
+                f'{coocc_file}\n\n'
+                f'(Plots were also shown in figure windows.)'
+                f'{extra}'
             ),
         )
 

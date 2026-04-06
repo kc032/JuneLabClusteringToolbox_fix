@@ -70,10 +70,10 @@ class JuneLabClusteringGUI(ttk.Frame):
         for w in self.winfo_children():
             w.destroy()
 
-    def _run_with_busy(self, status_text, work_fn):
+    def _run_with_busy(self, status_text, work_fn, status_row=8):
         """Show a visible busy state while running a long callback."""
         status_lbl = ttk.Label(self, text=status_text, font=("TkHeadingFont", 11))
-        status_lbl.grid(column=1, row=8, columnspan=3, pady=4)
+        status_lbl.grid(column=1, row=status_row, columnspan=3, pady=4)
         self.configure(cursor="watch")
         if self.master is not None:
             self.master.configure(cursor="watch")
@@ -110,12 +110,15 @@ class JuneLabClusteringGUI(ttk.Frame):
         for r in range(1, 9):
             self.rowconfigure(r, weight=2)  # button rows
 
+    # Sub-page layout: content uses rows 1..(FOOTER_ROW-2); spacer grows;
+    # Return to Home sits on FOOTER_ROW (see _sub_page).
+    _SUB_SPACER_ROW = 15
+    _SUB_FOOTER_ROW = 16
+
     def _configure_sub_grid(self):
-        """Weights for sub-pages (simpler, centred single-column layout)."""
+        """Weights for sub-pages (centred layout; footer row set in _sub_page)."""
         for c in range(5):
             self.columnconfigure(c, weight=0)
-        for r in range(12):
-            self.rowconfigure(r, weight=0)
 
         self.columnconfigure(0, weight=1)
         self.columnconfigure(1, weight=3)
@@ -123,13 +126,73 @@ class JuneLabClusteringGUI(ttk.Frame):
         self.columnconfigure(3, weight=3)
         self.columnconfigure(4, weight=1)
 
-        for r in range(10):
+        for r in range(24):
+            self.rowconfigure(r, weight=0)
+
+    def _configure_startup_grid(self):
+        """Setup screen only: same columns as sub-pages, rows get weight for spacing."""
+        for c in range(5):
+            self.columnconfigure(c, weight=0)
+        self.columnconfigure(0, weight=1)
+        self.columnconfigure(1, weight=3)
+        self.columnconfigure(2, weight=3)
+        self.columnconfigure(3, weight=3)
+        self.columnconfigure(4, weight=1)
+        for r in range(24):
+            self.rowconfigure(r, weight=0)
+        for r in range(1, 9):
             self.rowconfigure(r, weight=1)
+
+    # Wiki links (match Ensemble Clustering labels/URLs)
+    _URL_COLORMAP = 'https://matplotlib.org/stable/tutorials/colors/colormaps.html'
+    _URL_TRANSFORM = (
+        'https://github.com/hisl6802/Transformation-and-Scaling/wiki/Transformations'
+    )
+    _URL_SCALE = 'https://github.com/hisl6802/Transformation-and-Scaling/wiki/Scaling'
+
+    def _wiki_buttons_color_transform_scale(self, row, start_col=1):
+        for col, (label, url) in enumerate(
+            [
+                ('ColorMap Options', self._URL_COLORMAP),
+                ('Transform Options', self._URL_TRANSFORM),
+                ('Scale Options', self._URL_SCALE),
+            ],
+            start=start_col,
+        ):
+            ttk.Button(
+                self, text=label,
+                command=lambda u=url: webbrowser.open(u),
+            ).grid(column=col, row=row, padx=5, pady=5, sticky=(E, W))
+
+    def _wiki_buttons_transform_scale(self, row, start_col=1):
+        for col, (label, url) in enumerate(
+            [
+                ('Transform Options', self._URL_TRANSFORM),
+                ('Scale Options', self._URL_SCALE),
+            ],
+            start=start_col,
+        ):
+            ttk.Button(
+                self, text=label,
+                command=lambda u=url: webbrowser.open(u),
+            ).grid(column=col, row=row, padx=5, pady=5, sticky=(E, W))
+
+    def _wiki_buttons_cmap_trans_scale_under_menus(self, row):
+        """Wiki under Color-Map / Transform / Scale listbox columns 3–5."""
+        for col, (label, url) in (
+            (3, ('ColorMap Options', self._URL_COLORMAP)),
+            (4, ('Transform Options', self._URL_TRANSFORM)),
+            (5, ('Scale Options', self._URL_SCALE)),
+        ):
+            ttk.Button(
+                self, text=label,
+                command=lambda u=url: webbrowser.open(u),
+            ).grid(column=col, row=row, padx=5, pady=5, sticky=(E, W))
 
     #  start-up page
     def startUpPage(self):
         self._clear()
-        self._configure_sub_grid()
+        self._configure_startup_grid()
 
         self.style = ttk.Style()
         self.style.configure("RW.TLabel",  foreground="#000000",
@@ -191,9 +254,13 @@ class JuneLabClusteringGUI(ttk.Frame):
                 title="Number of Threads",
                 message="You have been assigned 2 threads.")
         config.name = name
+        log_time = time.strftime("%a_%b_%d_%Y_%H_%M_%S")
         if out_dir:
             try:
                 os.chdir(out_dir)
+                session_dir = os.path.join(os.getcwd(), f"{name}_{log_time}")
+                os.makedirs(session_dir, exist_ok=True)
+                os.chdir(session_dir)
             except Exception:
                 messagebox.showwarning(
                     title="Output folder",
@@ -202,7 +269,6 @@ class JuneLabClusteringGUI(ttk.Frame):
                              "Logs/results will be saved to the current working directory.")
                 )
 
-        log_time = time.strftime("%a_%b_%d_%Y_%H_%M_%S")
         log_file  = config.name + '_' + log_time + '.log'
         logging.basicConfig(filename=log_file,
                             format='%(asctime)s %(message)s',
@@ -273,7 +339,7 @@ class JuneLabClusteringGUI(ttk.Frame):
              "Lookup compounds from Mummichog output. Select folder of mummichog_matched_compound_*.csv (run MummiBot on P2P files first)."),
 
             ("CoOcc Heatmap",             self.cooccHeatmap,       4, 3,
-             "Creates heatmaps from the ensemble solution: the CoOcc matrix (EnsembleCoOcc.xlsx) and the number of clusters you choose; use the same data file as ensemble clustering."),
+             "Create a heatmap from the CoOcc output on the group medians output. Better for smaller datasets."),
 
             ("Selected Clusters Figure",  self.genSelClustFig,      1, 4,
              "Makes a figure for specific clusters"),
@@ -345,14 +411,20 @@ class JuneLabClusteringGUI(ttk.Frame):
         """Clear frame, apply sub-page grid, draw title + home button."""
         self._clear()
         self._configure_sub_grid()
-        
+
+        spacer = self._SUB_SPACER_ROW
+        footer = self._SUB_FOOTER_ROW
+        # Push footer to the bottom of the window when it is tall enough.
+        self.rowconfigure(spacer, weight=1)
+
         ttk.Label(self, text=title,
                   font=("TkHeadingFont", 28, "bold")).grid(
-            column=0, row=0, columnspan=5, pady=15)
-       
+            column=0, row=0, columnspan=5, pady=15, sticky=(N,))
+
         ttk.Button(self, text="Return to Home",
                    command=self.home).grid(
-            column=0, row=9, columnspan=5, pady=10, padx=60, sticky='')
+            column=0, row=footer, columnspan=5,
+            pady=(12, 20), padx=60, sticky=(S, E, W))
 
     #  preproces
     def preprocess(self):
@@ -447,20 +519,18 @@ class JuneLabClusteringGUI(ttk.Frame):
         self.update_idletasks()
     
         linkLB.bind('<Double-1>', linkageOutput)
-    
+
+        self._wiki_buttons_cmap_trans_scale_under_menus(3)
+
         ttk.Label(self, text="Group order (space separated):",
                   font=("TkHeadingFont", 11)).grid(
-            column=1, row=3, columnspan=3, sticky='w', padx=10)
+            column=1, row=4, columnspan=3, sticky='w', padx=10)
         grpVar = tk.StringVar()
         ttk.Entry(self, textvariable=grpVar).grid(
-            column=1, row=4, columnspan=3, sticky='ew', padx=10)
+            column=1, row=5, columnspan=3, sticky='ew', padx=10)
         ttk.Button(self, text="Submit", command=submit).grid(
-            column=4, row=4, padx=10, sticky='ew')
-        ttk.Button(self, text="ColorMap options",
-                   command=lambda: webbrowser.open(
-                       'https://matplotlib.org/stable/tutorials/colors/colormaps.html')
-                   ).grid(column=5, row=4, columnspan=2, padx=10, sticky='ew')
-           
+            column=4, row=6, padx=10, sticky='ew')
+
     #  clusterSelection                                                    
     def clusterSelection(self):
         self._sub_page("Cluster Selection")
@@ -490,7 +560,7 @@ class JuneLabClusteringGUI(ttk.Frame):
             global selection4
             selection4 = scaleLB.curselection()
             _refill(normLB, normList)
-            submit_btn.grid(column=4, row=4, columnspan=3,
+            submit_btn.grid(column=4, row=7, columnspan=3,
                             padx=10, sticky=(E, W))
 
         def submit(*args):
@@ -522,9 +592,12 @@ class JuneLabClusteringGUI(ttk.Frame):
             ttk.Label(self, text=lbl,
                       font=("TkHeadingFont", 11)).grid(column=col, row=1, pady=3)
 
-        distLB = _lb(self, 2); sampleLB = _lb(self, 3)
-        colorLB = _lb(self, 4); transformLB = _lb(self, 5)
-        scaleLB = _lb(self, 6); normLB = _lb(self, 7)
+        distLB = _lb(self, 2, col=1)
+        sampleLB = _lb(self, 2, col=2)
+        colorLB = _lb(self, 2, col=3)
+        transformLB = _lb(self, 2, col=4)
+        scaleLB = _lb(self, 2, col=5)
+        normLB = _lb(self, 2, col=6)
 
         _refill(distLB, linkageList)
 
@@ -534,12 +607,14 @@ class JuneLabClusteringGUI(ttk.Frame):
         transformLB.bind('<Double-1>', dataScale)
         scaleLB.bind('<Double-1>',     dataNorm)
 
+        self._wiki_buttons_cmap_trans_scale_under_menus(3)
+
         ttk.Label(self, text="Group order (normalization col first, separate by a space)",
                   font=("TkHeadingFont", 11)).grid(
-            column=1, row=3, columnspan=3, sticky=W, padx=10)
+            column=1, row=4, columnspan=3, sticky=W, padx=10)
         grpVar = tk.StringVar()
         ttk.Entry(self, textvariable=grpVar).grid(
-            column=1, row=4, columnspan=3, sticky=(E, W), padx=10)
+            column=1, row=5, columnspan=3, sticky=(E, W), padx=10)
         submit_btn = ttk.Button(self, text="Submit", command=submit)
 
 
@@ -638,8 +713,9 @@ class JuneLabClusteringGUI(ttk.Frame):
         scaleLB     = _lb(self, 4, col=2)
         transformLB.bind('<Double-1>', dataScale)
 
+        self._wiki_buttons_transform_scale(5, start_col=1)
         ttk.Button(self, text="Submit", command=submit).grid(
-            column=1, row=5, columnspan=3, sticky=(E,W), padx=60, pady=5)
+            column=1, row=6, columnspan=3, sticky=(E,W), padx=60, pady=5)
 
     #  heatmapAnalyses
 
@@ -671,7 +747,7 @@ class JuneLabClusteringGUI(ttk.Frame):
             global selection4
             selection4 = scaleLB.curselection()
             _refill(normLB, normList)
-            submit_btn.grid(column=4, row=4, columnspan=3,
+            submit_btn.grid(column=4, row=7, columnspan=3,
                             padx=10, sticky=(E,W))
 
         def submit(*args):
@@ -719,12 +795,14 @@ class JuneLabClusteringGUI(ttk.Frame):
         transformLB.bind('<Double-1>', dataScale)
         scaleLB.bind('<Double-1>',     dataNorm)
 
+        self._wiki_buttons_cmap_trans_scale_under_menus(3)
+
         ttk.Label(self, text="Group order (normalization col first, separate by a space)",
                   font=("TkHeadingFont",11)).grid(
-            column=1, row=3, columnspan=3, sticky=W, padx=10)
+            column=1, row=4, columnspan=3, sticky=W, padx=10)
         grpVar = tk.StringVar()
         ttk.Entry(self, textvariable=grpVar).grid(
-            column=1, row=4, columnspan=3, sticky=(E,W), padx=10)
+            column=1, row=5, columnspan=3, sticky=(E,W), padx=10)
         submit_btn = ttk.Button(self, text="Submit", command=submit)
 
     #  thin-delegate methods                                               
@@ -781,17 +859,22 @@ class JuneLabClusteringGUI(ttk.Frame):
         transformLB.bind('<Double-1>', ensembleTransform)
         scaleLB.bind('<Double-1>',     ensembleScale)
 
+        self._wiki_buttons_color_transform_scale(3)
+
         # checkbox to run Peaks->Pathways and Compound MatchUp cascade
         self.run_p2p_cascade = tk.BooleanVar(value=False)
         ttk.Checkbutton(
             self,
             text="Also generate PeaksToPathways files and prompt for Mummichog results",
             variable=self.run_p2p_cascade
-        ).grid(column=1, row=3, columnspan=3, pady=5, padx=5, sticky=(E, W))
+        ).grid(column=1, row=4, columnspan=3, pady=5, padx=5, sticky=(E, W))
 
         def run_ensemble_and_cascade():
-            # run ensemble clustering with full optimization
-            result = GU.ensembleClusteringFullOpt(transform=transSel, scale=scaleSel)
+            sel = colorMapLB.curselection()
+            col_map = colorList[sel[0]] if sel else 'viridis'
+            result = GU.ensembleClusteringFullOpt(
+                transform=transSel, scale=scaleSel, colMap=col_map,
+            )
             try:
                 opt_k, out_dir = result
             except Exception:
@@ -822,24 +905,16 @@ class JuneLabClusteringGUI(ttk.Frame):
             self, text="Submit",
             command=run_ensemble_and_cascade)
 
-        for col, (label, url) in enumerate([
-            ("ColorMap Options",
-             'https://matplotlib.org/stable/tutorials/colors/colormaps.html'),
-            ("Transform Options",
-             'https://github.com/hisl6802/Transformation-and-Scaling/wiki/Transformations'),
-            ("Scale Options",
-             'https://github.com/hisl6802/Transformation-and-Scaling/wiki/Scaling')],
-                start=1):
-            ttk.Button(self, text=label,
-                       command=lambda u=url: webbrowser.open(u)).grid(
-                column=col, row=4, padx=5, pady=5, sticky=(E,W))
-
     def cooccHeatmap(self):
         self._sub_page('CoOcc Heatmap')
 
         coocc_var = tk.StringVar(value='')
         data_var = tk.StringVar(value='')
         k_var = tk.StringVar(value='4')
+
+        transformList = config.transformList
+        scaleList = config.scaleList
+        co_ts = {'transform': 'None', 'scale': 'None'}
 
         ttk.Label(
             self,
@@ -855,11 +930,66 @@ class JuneLabClusteringGUI(ttk.Frame):
             state='readonly',
         ).grid(column=2, row=1, sticky=W, padx=5, pady=6)
 
+        cmap_list = list(dict.fromkeys(config.colorList))
+        if 'coolwarm' in cmap_list:
+            cmap_list.remove('coolwarm')
+        cmap_list = ['coolwarm'] + cmap_list
+        cmap_var = tk.StringVar(value='coolwarm')
+
+        ttk.Label(
+            self,
+            text='Colormap:',
+            font=('TkHeadingFont', 12),
+        ).grid(column=1, row=2, sticky=W, padx=10, pady=4)
+        ttk.Combobox(
+            self,
+            textvariable=cmap_var,
+            values=cmap_list,
+            width=16,
+            state='readonly',
+        ).grid(column=2, row=2, sticky=W, padx=5, pady=4)
+        ttk.Button(
+            self,
+            text='ColorMap Options',
+            command=lambda: webbrowser.open(self._URL_COLORMAP),
+        ).grid(column=3, row=2, padx=5, pady=4, sticky=W)
+
+        for col, lbl in [(1, 'Transform'), (2, 'Scale')]:
+            ttk.Label(
+                self, text=lbl, font=('TkHeadingFont', 12),
+            ).grid(column=col, row=3, pady=(6, 2), padx=10, sticky=W)
+
+        def on_coocc_trans(*_):
+            if not trans_lb.curselection():
+                return
+            co_ts['transform'] = transformList[trans_lb.curselection()[0]]
+            _refill(scale_lb, scaleList)
+
+        def on_coocc_scale(*_):
+            if not scale_lb.curselection():
+                return
+            co_ts['scale'] = scaleList[scale_lb.curselection()[0]]
+
+        trans_lb = _lb(self, 4, col=1, height=6)
+        scale_lb = _lb(self, 4, col=2, height=6)
+        _refill(trans_lb, transformList)
+        trans_lb.bind('<Double-1>', on_coocc_trans)
+        scale_lb.bind('<Double-1>', on_coocc_scale)
+
+        self._wiki_buttons_transform_scale(5, start_col=1)
+
+        cluster_cols_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            self,
+            text='Cluster columns by group (column dendrogram)',
+            variable=cluster_cols_var,
+        ).grid(column=1, row=6, columnspan=3, sticky=W, padx=10, pady=2)
+
         ttk.Label(
             self,
             text='EnsembleCoOcc.xlsx:',
             font=('TkHeadingFont', 12),
-        ).grid(column=1, row=2, sticky=W, padx=10, pady=4)
+        ).grid(column=1, row=7, sticky=W, padx=10, pady=4)
 
         def browse_coocc():
             p = filedialog.askopenfilename(
@@ -874,20 +1004,20 @@ class JuneLabClusteringGUI(ttk.Frame):
 
         ttk.Entry(
             self, textvariable=coocc_var, width=56,
-        ).grid(column=1, row=3, columnspan=2, sticky=(E, W), padx=10, pady=2)
+        ).grid(column=1, row=8, columnspan=2, sticky=(E, W), padx=10, pady=2)
         ttk.Button(self, text='Browse…', command=browse_coocc).grid(
-            column=3, row=3, padx=5, pady=2, sticky=W,
+            column=3, row=8, padx=5, pady=2, sticky=W,
         )
 
         ttk.Label(
             self,
-            text='Data file (same as ensemble clustering):',
+            text='Group medians matrix (.xlsx, row 1 = group names):',
             font=('TkHeadingFont', 12),
-        ).grid(column=1, row=4, sticky=W, padx=10, pady=4)
+        ).grid(column=1, row=9, sticky=W, padx=10, pady=4)
 
         def browse_data():
             p = filedialog.askopenfilename(
-                title='Select ensemble clustering data file',
+                title='Select group medians matrix (e.g. *_matrix_medians.xlsx)',
                 filetypes=[
                     ('Excel', '*.xlsx'),
                     ('CSV', '*.csv'),
@@ -899,21 +1029,28 @@ class JuneLabClusteringGUI(ttk.Frame):
 
         ttk.Entry(
             self, textvariable=data_var, width=56,
-        ).grid(column=1, row=5, columnspan=2, sticky=(E, W), padx=10, pady=2)
+        ).grid(column=1, row=10, columnspan=2, sticky=(E, W), padx=10, pady=2)
         ttk.Button(self, text='Browse…', command=browse_data).grid(
-            column=3, row=5, padx=5, pady=2, sticky=W,
+            column=3, row=10, padx=5, pady=2, sticky=W,
         )
 
         def run_coocc():
             self._run_with_busy(
                 'Working… CoOcc heatmaps.',
                 lambda: GU.cooccHeatmap(
-                    k_var.get(), coocc_var.get(), data_var.get(),
+                    k_var.get(),
+                    coocc_var.get(),
+                    data_var.get(),
+                    cmap=cmap_var.get(),
+                    col_cluster=cluster_cols_var.get(),
+                    transform=co_ts['transform'],
+                    scale=co_ts['scale'],
                 ),
+                status_row=11,
             )
 
         ttk.Button(self, text='Run', command=run_coocc).grid(
-            column=1, row=6, columnspan=2, sticky=(E, W), padx=60, pady=15,
+            column=1, row=12, columnspan=2, sticky=(E, W), padx=60, pady=15,
         )
 
     #  MST
@@ -954,6 +1091,8 @@ class JuneLabClusteringGUI(ttk.Frame):
         scaleLB.bind('<Double-1>', scaleType)
         valLB.bind('<Double-1>',   valType)
 
+        self._wiki_buttons_transform_scale(3)
+
     #  genSelClustFig                                                      
     def genSelClustFig(self):
         self._sub_page("Selected Clusters Figure")
@@ -965,6 +1104,11 @@ class JuneLabClusteringGUI(ttk.Frame):
         cmap_lb.bind('<Double-1>',
                      lambda *_: GB.createHeatmapFig(
                          clMap=colorList[cmap_lb.curselection()[0]]))
+        ttk.Button(
+            self,
+            text='ColorMap Options',
+            command=lambda: webbrowser.open(self._URL_COLORMAP),
+        ).grid(column=2, row=3, padx=5, pady=5, sticky=(E, W))
 
 
     #  anovaHeatMap
@@ -980,7 +1124,7 @@ class JuneLabClusteringGUI(ttk.Frame):
             global transform
             transform = transformList[transformLB.curselection()[0]]
             _refill(scaleLB, scaleList)
-            submit_btn.grid(column=1, row=5, columnspan=3,
+            submit_btn.grid(column=1, row=6, columnspan=3,
                             sticky=(E,W), padx=60, pady=5)
 
         colorList     = config.colorList
@@ -998,6 +1142,8 @@ class JuneLabClusteringGUI(ttk.Frame):
 
         colorMapLB.bind('<Double-1>',  transformAH)
         transformLB.bind('<Double-1>', scaleAHMP)
+
+        self._wiki_buttons_color_transform_scale(3)
 
         submit_btn = ttk.Button(
             self, text="Submit",
@@ -1070,6 +1216,8 @@ class JuneLabClusteringGUI(ttk.Frame):
         scaleLB     = _lb(self, 2, col=2)
         _refill(transformLB, transformList)
         transformLB.bind('<Double-1>', transSelected)
+
+        self._wiki_buttons_transform_scale(3)
 
         submit_btn = ttk.Button(
             self, text="Submit",
@@ -1282,6 +1430,8 @@ class JuneLabClusteringGUI(ttk.Frame):
         optLB.bind('<Double-1>',       dataTransform)
         transformLB.bind('<Double-1>', dataScale)
         scaleLB.bind('<Double-1>',     upNumClust)
+
+        self._wiki_buttons_transform_scale(3, start_col=4)
 
         ttk.Button(self, text="Submit", command=submit).grid(
             column=1, row=4, columnspan=6, sticky=(E,W), padx=60, pady=8)
