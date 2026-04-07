@@ -1,0 +1,14 @@
+2026-04-06 23:05:53,660 prerank1707494768336::[DEBUG   ] Input data is a DataFrame with gene names
+2026-04-06 23:05:53,660 prerank1707494768336::[INFO    ] Input gene rankings contains duplicated IDs
+2026-04-06 23:05:53,668 prerank1707494768336::[INFO    ] Parsing data files for GSEA.............................
+2026-04-06 23:05:53,699 prerank1707494768336::[INFO    ] Enrichr library gene sets already downloaded in: C:\Users\r58g616.MSU\.cache/gseapy, use local file
+2026-04-06 23:05:53,760 prerank1707494768336::[INFO    ] Enrichr library gene sets already downloaded in: C:\Users\r58g616.MSU\.cache/gseapy, use local file
+2026-04-06 23:05:53,762 prerank1707494768336::[INFO    ] Enrichr library gene sets already downloaded in: C:\Users\r58g616.MSU\.cache/gseapy, use local file
+2026-04-06 23:05:53,778 prerank1707494768336::[INFO    ] Enrichr library gene sets already downloaded in: C:\Users\r58g616.MSU\.cache/gseapy, use local file
+2026-04-06 23:05:53,793 prerank1707494768336::[INFO    ] Enrichr library gene sets already downloaded in: C:\Users\r58g616.MSU\.cache/gseapy, use local file
+2026-04-06 23:05:53,919 prerank1707494768336::[INFO    ] 5592 gene_sets have been filtered out when max_size=500 and min_size=15
+2026-04-06 23:05:53,919 prerank1707494768336::[INFO    ] 4367 gene_sets used for further statistical testing.....
+2026-04-06 23:05:53,919 prerank1707494768336::[INFO    ] Start to run GSEA...Might take a while..................
+2026-04-06 23:05:53,934 prerank1707494768336::[INFO    ] Genes are converted to uppercase.
+2026-04-06 23:06:46,583 prerank1707494768336::[INFO    ] Congratulations. GSEApy runs successfully................
+

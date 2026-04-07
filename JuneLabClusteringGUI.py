@@ -377,10 +377,13 @@ class JuneLabClusteringGUI(ttk.Frame):
             ("VIP (MS/MS Comp.)",         self.progen,              4, 6,
              "VIP MS/MS comparison"),
 
-            ("Gene -> Pathways",          self.gene2path,           1, 7,
+            ("RNA-seq Deglist",      self.RNASeqDeg,           1, 7,
+             "DESeq2 differential gene list generated from count matrix"),
+            
+            ("Gene -> Pathways",          self.gene2path,           2, 7,
              "Look up KEGG pathways associated with genes"),
 
-            ("Help/Documentation",        self.helpOut,             2, 7,
+            ("Help/Documentation",        self.helpOut,             3, 7,
              "Opens the help wiki"),
         ]
 
@@ -821,7 +824,8 @@ class JuneLabClusteringGUI(ttk.Frame):
     def helpOut(self):    webbrowser.open('https://github.com/hisl6802/ClusteringToolbox/wiki')
     def progen(self):     GU.progenesis()
     def gene2path(self):  GU.geneToPathway()
-
+    def RNASeqDeg(self): GU.RNASeqDeg()
+    
     #  ECCO
     def ensemble(self):
         self._sub_page("Ensemble Clustering with Optimization")

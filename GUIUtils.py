@@ -18,6 +18,10 @@ import os
 import shutil
 import warnings
 import GuiBackground as GB
+import gseapy as gp
+import seaborn as sns
+import matplotlib.pyplot as plt
+import networkx as nx
 
 from numpy import isin
 from selenium import webdriver
@@ -36,10 +40,19 @@ from scipy.stats import t
 from sklearn.cluster import AgglomerativeClustering as AC, KMeans
 from sklearn import metrics
 from itertools import combinations
-from tkinter import filedialog, messagebox
+from tkinter import filedialog, messagebox, simpledialog
 from Bio.KEGG import REST
 from Bio.KEGG import Compound
 from ValidationMetric import ValidationMetric as VM
+from sklearn.cross_decomposition import PLSRegression
+from sklearn.preprocessing import StandardScaler
+from pydeseq2.dds import DeseqDataSet
+from pydeseq2.ds import DeseqStats
+
+try:
+    from pydeseq2.default_inference import DefaultInference
+except ImportError:
+    DefaultInference = None
 
 # Suppress a noisy OpenMP runtime warning emitted via threadpoolctl during
 # some sklearn calls on certain mixed runtime environments.
@@ -3473,120 +3486,600 @@ class GUIUtils:
             messagebox.showinfo(message='Currently not supporting this comparison type.')
 
     def geneToPathway():
+        '''Pathway enrichment via gseapy Enrichr + prerank.
+
+        Input CSV: gene ID, log2 fold change, and raw p-value (column names
+        matched case-insensitively, e.g. ECCO_Trial_Deglist.csv: Gene, log2FC,
+        pvalue). Optional FDR/padj column is kept for export only; significance
+        for up/down lists and volcano coloring uses raw p-value and a user-chosen
+        cutoff (default 0.05).
+
+        Enrichr gene_sets: GO BP/MF/CC 2021, KEGG_2021_Human (organism-agnostic
+        block in this function), and Reactome_2022.
         '''
-        '''
+        sns.set(style="whitegrid", context="talk")
 
-
-        #give the user the input that tells them what to submit
-        messagebox.showinfo(message="Select a csv file of genes, Fold-change, and p-values")
-
+        # Prompt user
+        messagebox.showinfo(
+            message="Select CSV with Gene, log2FC, and raw p-value "
+            "(e.g. pvalue, P.Value). FDR/padj optional. ECCO-style DEG lists supported."
+        )
         file = filedialog.askopenfilename()
+        if not file:
+            return
 
-        #read in the input parameters
-        genes = pd.read_csv(file)
+        raw_df = pd.read_csv(file)
+        lm = {str(c).strip().lower(): c for c in raw_df.columns}
 
-        #add 10 columns to genes data frame
-        pathIndex = [f"P{i}" for i in range(1, 11)]
-        newCols = pd.DataFrame(np.zeros((genes.shape[0],10)),columns=pathIndex)
+        def _pick_col(*names):
+            for n in names:
+                k = n.lower()
+                if k in lm:
+                    return lm[k]
+            return None
 
-        #add columns for 
-        genes = pd.concat([genes, newCols],axis=1)
-        genes = genes.replace(0, np.nan)
+        gene_c = _pick_col("gene", "symbol")
+        lfc_c = _pick_col("log2fc", "logfc", "log2foldchange", "log2_fold_change")
+        p_c = _pick_col(
+            "pvalue",
+            "p.value",
+            "p_value",
+            "p val",
+            "pval",
+            "raw p",
+            "raw_p",
+            "pvalue.raw",
+        )
+        fdr_c = _pick_col("fdr", "padj", "qvalue", "adj.p.val", "adj_p_val", "qval")
 
-        # Specify the file path and name
-        file_path = 'Results.xlsx'
+        if gene_c is None or lfc_c is None or p_c is None:
+            messagebox.showerror(
+                message="CSV needs gene names, log2 fold change, and a raw p-value column "
+                "(e.g. Gene, log2FC, pvalue).",
+            )
+            return
 
-        # Use ExcelWriter with the openpyxl engine
-        with pd.ExcelWriter(file_path, engine='openpyxl') as writer:
-            genes.to_excel(writer, index=False, sheet_name='Sheet1')
+        df = raw_df.copy()
+        df.rename(columns={gene_c: "Gene", lfc_c: "log2FC", p_c: "pvalue"}, inplace=True)
+        df["Gene"] = df["Gene"].astype(str)
+        df["log2FC"] = pd.to_numeric(df["log2FC"], errors="coerce")
+        df["pvalue"] = pd.to_numeric(df["pvalue"], errors="coerce")
+        if fdr_c is not None:
+            df["FDR"] = pd.to_numeric(raw_df[fdr_c], errors="coerce")
+
+        df = df.dropna(subset=["Gene", "log2FC", "pvalue"])
+
+        p_cutoff = simpledialog.askfloat(
+            "P-value threshold",
+            "Significance cutoff (raw p-value):",
+            initialvalue=0.05,
+            minvalue=0.0,
+            maxvalue=1.0,
+        )
+        if p_cutoff is None:
+            return
+        if p_cutoff <= 0:
+            messagebox.showerror(message="P-value cutoff must be greater than 0.")
+            return
+
+        sig = df[df["pvalue"] < p_cutoff]
+
+        threshold = simpledialog.askinteger(
+            "Threshold",
+            "What is your log2FC threshold?",
+            initialvalue=0,
+        )
+        if threshold is None:
+            return
+        up = sig[sig["log2FC"] > threshold]
+        down = sig[sig["log2FC"] < -threshold]
+
+        up_genes = up["Gene"].astype(str).tolist()
+        down_genes = down["Gene"].astype(str).tolist()
+
+        def volcano_plot(df_plot, log2_thresh, p_thresh):
+            eps = max(np.finfo(float).tiny, float(p_thresh) * 1e-6)
+            ycol = "-log10(P-value)"
+            df_v = df_plot.copy()
+            df_v[ycol] = -np.log10(df_v["pvalue"].clip(lower=eps))
+            df_v["Regulation"] = "NS"
+            up_m = (df_v["pvalue"] < p_thresh) & (df_v["log2FC"] > log2_thresh)
+            down_m = (df_v["pvalue"] < p_thresh) & (df_v["log2FC"] < -log2_thresh)
+            df_v.loc[up_m, "Regulation"] = "Up"
+            df_v.loc[down_m, "Regulation"] = "Down"
+
+            plt.figure(figsize=(8, 6))
+            palette = {"Up": "red", "Down": "blue", "NS": "gray"}
+            for key, group in df_v.groupby("Regulation"):
+                plt.scatter(
+                    group["log2FC"],
+                    group[ycol],
+                    c=palette[key],
+                    label=key,
+                    alpha=0.7,
+                    s=20,
+                )
+
+            top = df_v[df_v["pvalue"] < p_thresh].nlargest(10, ycol)
+            for _, row in top.iterrows():
+                plt.text(row["log2FC"], row[ycol], row["Gene"], fontsize=8)
+
+            plt.axhline(-np.log10(p_thresh), linestyle="--", color="black")
+            plt.axvline(log2_thresh, linestyle="--", color="black")
+            plt.axvline(-log2_thresh, linestyle="--", color="black")
+
+            plt.xlabel("log2 Fold Change")
+            plt.ylabel(ycol)
+            plt.title("Volcano Plot (P-value cutoff: {p_cutoff})")
+            plt.legend()
+            plt.tight_layout()
+            plt.savefig("volcano_plot.png", dpi=300)
+            plt.close()
+
+        volcano_plot(df, threshold, p_cutoff)
+
+        # GO libraries
+        organism = "human"
+        go_libraries = {
+            "BP": "GO_Biological_Process_2021",
+            "MF": "GO_Molecular_Function_2021",
+            "CC": "GO_Cellular_Component_2021"
+        }
+        
+        kegg_map = {"human": "KEGG_2021_Human"}
+
+        kegg_lib = kegg_map.get(organism, "KEGG_2021_Human")
+        
+        reactome_lib = "Reactome_2022"
+
+        geneset_lines = [
+            f"Organism passed to Enrichr: {organism}",
+            "",
+            "Gene set libraries (Enrichr names):",
+            f"  • {go_libraries['BP']} (GO Biological Process)",
+            f"  • {go_libraries['MF']} (GO Molecular Function)",
+            f"  • {go_libraries['CC']} (GO Cellular Component)",
+            f"  • {kegg_lib}",
+            f"  • {reactome_lib}",
+            "",
+            "GSEA prerank uses this same list (GO ×3, KEGG, Reactome).",
+        ]
+        if organism not in kegg_map:
+            geneset_lines.append(
+                f"(Unrecognized organism for KEGG: using {kegg_lib}; "
+                "use 'human' or 'mouse' for matched KEGG libraries.)"
+            )
+        messagebox.showinfo(
+            title="Gene set libraries",
+            message="\n".join(geneset_lines),
+        )
+
+        # Run enrichment
+        def run_enrichment(gene_list, library):
+            if len(gene_list) == 0:
+                return pd.DataFrame()
+
+            enr = gp.enrichr(
+                gene_list=gene_list,
+                gene_sets=library,
+                organism=organism,
+                outdir=None,
+                cutoff=0.05
+            )
+            return enr.results
+
+        results = {}
+
+        for name, lib in go_libraries.items():
+            results[f"UP_GO_{name}"] = run_enrichment(up_genes, lib)
+            results[f"DOWN_GO_{name}"] = run_enrichment(down_genes, lib)
+
+        results["UP_KEGG"] = run_enrichment(up_genes, kegg_lib)
+        results["DOWN_KEGG"] = run_enrichment(down_genes, kegg_lib)
+        results["UP_Reactome"] = run_enrichment(up_genes, reactome_lib)
+        results["DOWN_Reactome"] = run_enrichment(down_genes, reactome_lib)
+
+
+        #GSEA (Ranked List)
+        ranked = df[['Gene','log2FC']].sort_values(by='log2FC', ascending=False)
+        ranked = ranked.set_index('Gene')
+
+        gsea_res = gp.prerank(
+            rnk=ranked,
+            gene_sets=list(go_libraries.values()) + [kegg_lib, reactome_lib],
+            outdir="GSEA_results",
+            permutation_num=100
+        )
+
+        def plot_gsea_curves(pre_res, outdir="GSEA_plots"):
+            os.makedirs(outdir, exist_ok=True)
+
+            res2d = pre_res.res2d
+            if res2d is None or getattr(res2d, "empty", True):
+                return
+
+            def _df_col(df, name):
+                n = name.lower()
+                for c in df.columns:
+                    if str(c).lower() == n:
+                        return c
+                return None
+
+            nes_c = _df_col(res2d, "nes")
+            term_c = _df_col(res2d, "term")
+            if nes_c is None or term_c is None:
+                return
+
+            res = res2d.sort_values(nes_c, ascending=False, na_position="last")
+            high = list(res[term_c].head(3))
+            low = list(res[term_c].tail(3))
+            top_terms = []
+            seen = set()
+            for t in high + low:
+                if t in seen:
+                    continue
+                seen.add(t)
+                top_terms.append(t)
+
+            def _safe_stem(label):
+                s = str(label).replace(" ", "_")
+                for ch in '<>:"/\\|?*\n\r\t':
+                    s = s.replace(ch, "_")
+                return (s[:180] if s else "pathway")
+
+            res_by_term = pre_res.results
+
+            def _gsd_get(gsd, *aliases):
+                keymap = {str(k).lower(): k for k in gsd}
+                for a in aliases:
+                    k = keymap.get(a.lower())
+                    if k is not None:
+                        return gsd[k]
+                raise KeyError(aliases)
+
+            for term in top_terms:
+                if term not in res_by_term:
+                    continue
+                ofn = os.path.join(outdir, f"{_safe_stem(term)}.png")
+                try:
+                    if hasattr(pre_res, "plot") and callable(pre_res.plot):
+                        pre_res.plot(terms=term, ofname=ofn)
+                    else:
+                        gsd = res_by_term[term]
+                        gp.gseaplot(
+                            term=term,
+                            hits=_gsd_get(gsd, "hits"),
+                            nes=float(_gsd_get(gsd, "nes", "NES")),
+                            pval=float(_gsd_get(gsd, "pval", "NOM p-val")),
+                            fdr=float(_gsd_get(gsd, "fdr", "FDR q-val")),
+                            RES=_gsd_get(gsd, "RES"),
+                            rank_metric=pre_res.ranking,
+                            ofname=ofn,
+                        )
+                except Exception:
+                    continue
+
+        plot_gsea_curves(gsea_res)
+
+        #Reduce redundacy
+        def reduce_redundancy(res, overlap_cutoff=0.5):
+
+            if res.empty:
+                return res
+
+            res = res.sort_values('Adjusted P-value').copy()
+            keep = []
+            seen = []
+
+            for _, row in res.iterrows():
+                genes = set(row['Genes'].split(';'))
+
+                redundant = False
+                for s in seen:
+                    overlap = len(genes & s) / len(genes | s)
+                    if overlap > overlap_cutoff:
+                        redundant = True
+                        break
+
+                if not redundant:
+                    keep.append(row)
+                    seen.append(genes)
+
+            return pd.DataFrame(keep)
+
+        # Plotting function
+        def plot_results(res, name):
+            if res.empty:
+                return
+
+            top = res.sort_values('Adjusted P-value').head(10).copy()
+
+            # Extract gene counts
+            top['Gene_Count'] = top['Overlap'].str.split('/').str[0].astype(int)
+
+            # Barplot
+            plt.figure(figsize=(8,6))
+            sns.barplot(
+                data=top,
+                y='Term',
+                x=-np.log10(top['Adjusted P-value']),
+                color='steelblue'
+            )
+            plt.xlabel("-log10(FDR)")
+            plt.ylabel("")
+            plt.title(name)
+
+            plt.tight_layout()
+            plt.savefig(f"{name}_barplot.png", dpi=300)
+            plt.close()
+
+            # Dotplot
+            plt.figure(figsize=(8,6))
+
+            scatter = plt.scatter(
+                -np.log10(top['Adjusted P-value']),
+                top['Term'],
+                s=top['Gene_Count'] * 25,
+                c=top['Adjusted P-value'],
+                cmap='viridis_r',
+                edgecolor='black'
+            )
+
+            plt.xlabel("-log10(FDR)")
+            plt.ylabel("")
+            plt.title(name)
+
+            # Colorbar (FDR)
+            cbar = plt.colorbar(scatter)
+            cbar.set_label("FDR")
+
+            # Size legend
+            for size in [5, 10, 20]:
+                plt.scatter([], [], s=size*25, c='gray', label=str(size))
+            plt.legend(title="Gene Count", loc='lower right')
+
+            plt.tight_layout()
+            plt.savefig(f"{name}_dotplot.png", dpi=300)
+            plt.close()
+
+
+        # Enrichment Map
+        def enrichment_map(res, name):
+
+            if res.empty:
+                return
+
+            top = res.sort_values('Adjusted P-value').head(20).copy()
+
+            # Convert gene lists
+            top['Gene_List'] = top['Genes'].apply(lambda x: set(x.split(';')))
+
+            G = nx.Graph()
+
+            for i in range(len(top)):
+                G.add_node(top.iloc[i]['Term'])
+
+            # Add edges based on overlap
+            for i in range(len(top)):
+                for j in range(i+1, len(top)):
+                    overlap = len(top.iloc[i]['Gene_List'] & top.iloc[j]['Gene_List'])
+                    if overlap >= 3:
+                        G.add_edge(top.iloc[i]['Term'], top.iloc[j]['Term'], weight=overlap)
+    
+            plt.figure(figsize=(8,8))
+            pos = nx.spring_layout(G, seed=42)
+
+            nx.draw(
+                G, pos,
+                with_labels=True,
+                node_size=500,
+                font_size=6
+            )
+
+            plt.title(f"{name} Enrichment Map")
+            plt.savefig(f"{name}_network.png", dpi=300)
+            plt.close()
             
-            # Load the openpyxl workbook object
-            workbook = writer.book
-            sheet = writer.sheets['Sheet1']
-            columnN = 3
-            count = 0
-            for j in range(genes.shape[0]):
-                request = REST.kegg_find("mmu",genes['Gene'][j])
+        # Generate plots
+        for name, res in results.items():
+            res = reduce_redundancy(res)
 
-                #write the file to the wanted location
-                txtFCur = 'Testing'+ '.txt'
-                open(txtFCur,'w').write(request.read())
-
-                #open the file and read, parse out to search names
-                geneSearch = open(txtFCur,"r")
-                geneMatches = geneSearch.read()
-
-                #start parsing
-                geneList = geneMatches.split("\n")
-                for i in range(len(geneList)):
-                    #check the current gene_i for the name, removing tab
-                    curCheck = geneList[i].split("\t")
-                    if len(curCheck) == 1:
-                        continue
-                    #hello
-                    curCheck1 = curCheck[1].split(",")
-
-                    if genes['Gene'][j] in curCheck1:
-                        count +=1  
-                        requestGene = REST.kegg_get(curCheck[0])
-                        #write the file to the wanted location
-                        txtFCur = 'TestingGet'+ '.txt'
-                        open(txtFCur,'w').write(requestGene.read())
-
-
-                        #open the txtFCur,read split then look for start and end
-                        check = open(txtFCur,"r")
-                        check1 = check.read()
-                        pathwayStart = check1.split("\n")
-                        #get the starting and ending positions for pathway then get pathways. 
-                        pathway = False
-                        pathwayStartI = None
-                        pathwayEndI = None
-                        #search for start and end positions of pathway
-                        for k in range(len(pathwayStart)):
-                            if pathway == False:
-                                #figure out where the start of the pathway is 
-                                if 'PATHWAY' in pathwayStart[k]:
-                                    pathway = True
-                                    pathwayStartI = k 
-                                else:
-                                    continue
-
-                            else:
-                                if pathwayStart[k][0].isalpha():
-                                    #keep as the wrong index for easy input to the range function
-                                    pathwayEndI = k
-                                    break
-
-                        if pathwayEndI == None:
-                            continue
-
-
-                        #get out the pathways of interest
-                        pathList = 10*[None]
-                        count2 = -1
-
-                        for m in range(pathwayStartI,pathwayEndI):
-                            count2 +=1
-                            if count2 == 10:
-                                break
-                            
-                            if m == pathwayStartI:
-                                #removing pathway and getting the list
-                                pathList[count2] = pathwayStart[m].strip('PATHWAY').strip()
-                            
-                            else:
-                                pathList[count2] = pathwayStart[m].strip()
+            plot_results(res, name)
+            enrichment_map(res, name)
             
-                #save the hyperlinks to the appropriate location.
-                columnN = 3
-                for l in range(len(pathList)):
-                    if pathList[l] == None:
-                        continue
-                    columnN += 1
-                #go through each pathway and add to the spreadsheet.
-                    # Use openpyxl to add a hyperlink
-                    # Note: Excel uses 1-based indexing, adjust cell accordingly
-                    sheet.cell(row=j+2, column=columnN).hyperlink = "https://www.genome.jp/pathway/" + pathList[l][:8]
-                    sheet.cell(row=j+2, column=columnN).value = pathList[l]
-                    sheet.cell(row=j+2, column=columnN).style = "Hyperlink"
+        # Identify unused genes (not recognized by enrichment tools)
+        used_genes = set()
+        for res in results.values():
+            if not res.empty:
+                used_genes.update(
+                    sum([g.split(';') for g in res['Genes']], [])
+                )
+
+        unused_genes = set(df['Gene'].astype(str)) - used_genes
+
+             
+        # Write to Excel
+        with pd.ExcelWriter("Gene_Enrichment_Results.xlsx") as writer:
+            df.to_excel(writer, sheet_name="All Genes", index=False)
+            up.to_excel(writer, sheet_name="Upregulated", index=False)
+            down.to_excel(writer, sheet_name="Downregulated", index=False)
+
+            for name, res in results.items():
+                res.to_excel(writer, sheet_name=name[:30], index=False)
+
+            pd.DataFrame(list(unused_genes), columns=["Unused Genes"])\
+                .to_excel(writer, sheet_name="Unused Genes", index=False)
+
+        messagebox.showinfo(
+            message=f"Analysis complete!\n\nUnused genes: {len(unused_genes)}"
+        )
+
+    def RNASeqDeg():
+        """
+        DESeq2 on a count-matrix CSV; save a DEG list like ECCO_Trial_Deglist.csv.
+        Expects a header row (gene id + sample columns), then either:
+        - **ECCO-style**: first data row = group label per sample (e.g. condition1...condition1, condition2...condition2),
+          following rows = genes × raw counts; or
+        - **Simple matrix**: first data row starts with a gene name and numeric counts
+          (no separate group row) — not supported; an error explains the Condition1vCondition2 format.
+
+        Output columns: Gene, log2FC, pvalue, FDR (Wald test, BH-adjusted ``padj``).
+        """
+        if DefaultInference is None:
+            messagebox.showerror(
+                title="PyDESeq2",
+                message="This workflow requires pydeseq2 with DefaultInference "
+                "(upgrade pydeseq2 to a recent release, e.g. >= 0.4).",
+            )
+            return
+
+        messagebox.showinfo(
+            message="Select a count matrix CSV (e.g. ECCO_Count_Matrix.csv): "
+            "header = gene column + sample IDs; row 2 = one group label per sample "
+            "(e.g. Condition1, Condition2); remaining rows = genes and raw integer counts.",
+        )
+        path = filedialog.askopenfilename(filetypes=[("CSV", "*.csv"), ("All", "*.*")])
+        if not path:
+            return
+
+        raw = pd.read_csv(path, header=0, dtype=str, low_memory=False)
+        if raw.shape[1] < 3:
+            messagebox.showerror(message="Need at least one gene column and two sample columns.")
+            return
+
+        sample_cols = [str(c) for c in raw.columns[1:]]
+
+        def _cell_float(x):
+            try:
+                return float(str(x).replace(",", "").strip())
+            except ValueError:
+                return np.nan
+
+        group_row = None
+        data_start = 0
+        if raw.shape[0] >= 2:
+            top0 = _cell_float(raw.iloc[0, 1])
+            top1 = _cell_float(raw.iloc[1, 1])
+            if np.isnan(top0) and not np.isnan(top1):
+                group_row = [str(x).strip() for x in raw.iloc[0, 1:].tolist()]
+                data_start = 1
+
+        if group_row is None:
+            messagebox.showerror(
+                message="Could not find a group-label row after the header.\n\n"
+                "Use a format like ECCO_Count_Matrix.csv: row 1 = gene_id, samples…; "
+                "row 2 = condition per sample (e.g. Condition1, Condition1, …, Condition2, Condition2, …); "
+                "row 3+ = genes and counts.",
+            )
+            return
+
+        if len(group_row) != len(sample_cols):
+            messagebox.showerror(
+                message="Number of group labels does not match the number of sample columns.",
+            )
+            return
+
+        body = raw.iloc[data_start:].copy()
+        body.index = body.iloc[:, 0].astype(str).str.strip()
+        body = body.iloc[:, 1:]
+        body.columns = sample_cols
+        body = body.apply(pd.to_numeric, errors="coerce").fillna(0.0)
+        body = body.astype(np.int64)
+        body = body[body.index.astype(str).str.len() > 0]
+        if body.index.duplicated().any():
+            body = body[~body.index.duplicated(keep="first")]
+
+        # PyDESeq2: samples × genes
+        counts = body.T
+        counts.index = counts.index.astype(str)
+
+        metadata = pd.DataFrame({"group": group_row}, index=counts.index)
+        metadata["group"] = metadata["group"].astype(str).str.strip()
+        _g = metadata["group"]
+        if _g.isna().any() or (_g == "").any():
+            messagebox.showerror(message="Missing or empty group label for some samples.")
+            return
+
+        levels = sorted(set(metadata["group"].tolist()))
+        if len(levels) != 2:
+            messagebox.showerror(
+                message=f"DESeq2 comparison needs exactly two groups; found: {levels}",
+            )
+            return
+
+        if set(levels) == {"Condition1", "Condition2"}:
+            test_g, ref_g = "Condition2", "Condition1"
+        else:
+            test_g, ref_g = levels[1], levels[0]
+
+        test_g = simpledialog.askstring(
+            "Contrast",
+            "Log2 fold-change = log2(test / reference).\n"
+            "Enter test group (numerator, e.g. Condition2):",
+            initialvalue=test_g,
+        )
+        if test_g is None:
+            return
+        test_g = test_g.strip()
+        ref_g = simpledialog.askstring(
+            "Contrast",
+            "Enter reference group (denominator, e.g. Condition1):",
+            initialvalue=ref_g,
+        )
+        if ref_g is None:
+            return
+        ref_g = ref_g.strip()
+        if test_g == ref_g:
+            messagebox.showerror(message="Test and reference groups must differ.")
+            return
+
+        inference = DefaultInference(n_cpus=None)
+
+        try:
+            dds = DeseqDataSet(
+                counts=counts,
+                metadata=metadata,
+                design="~group",
+                refit_cooks=True,
+                inference=inference,
+                quiet=True,
+            )
+            dds.deseq2()
+            stats = DeseqStats(
+                dds,
+                contrast=["group", test_g, ref_g],
+                inference=inference,
+                quiet=True,
+            )
+            stats.summary()
+        except Exception as exc:
+            messagebox.showerror(title="DESeq2 failed", message=str(exc))
+            return
+
+        res = stats.results_df
+        out = pd.DataFrame(
+            {
+                "Gene": res.index.astype(str),
+                "log2FC": res["log2FoldChange"],
+                "pvalue": res["pvalue"],
+                "FDR": res["padj"],
+            }
+        )
+
+        default_out = os.path.splitext(path)[0] + "_deglist.csv"
+        out_path = filedialog.asksaveasfilename(
+            title="Save DEG list (ECCO-style)",
+            defaultextension=".csv",
+            filetypes=[("CSV", "*.csv"), ("All", "*.*")],
+            initialfile=os.path.basename(default_out),
+            initialdir=os.path.dirname(path) or ".",
+        )
+        if not out_path:
+            return
+
+        out.to_csv(out_path, index=False)
+        messagebox.showinfo(
+            title="Done",
+            message=f"Saved {out.shape[0]} genes to:\n{out_path}\n\n"
+            f"Contrast: {test_g} vs {ref_g} (reference).",
+        )
