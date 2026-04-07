@@ -7,14 +7,20 @@
 # Update after editing this file:
 #   conda env update -f environment.yml --prune
 #
-# Python: 3.11–3.14 (conda-forge). If 3.14 is not available yet on your channel, change the
-# python line below to e.g. `python=3.12` or `python=3.11`.
+# Python: 3.11–3.12 recommended for fewer edge cases; 3.13 is OK if pip resolves gseapy wheels.
+# Bioconda may not ship gseapy builds for 3.13/3.14 yet — see
+# https://github.com/bioconda/bioconda-recipes/issues/62401 — so do not rely on
+# `conda install -c bioconda gseapy`; use PyPI (below). PyPI must provide the gseapy.gse wheel.
+#
+# GUI (JuneLabClusteringGUI.py) uses tkinter — on Windows, conda-forge Python needs the
+# `tk` package or import tkinter fails (no module named _tkinter).
 #
 name: ECCO_env
 channels:
   - conda-forge
 dependencies:
-  - python>=3.11,<3.15
+  - python>=3.11,<3.14
+  - tk
   - pip
   # Lower bounds aligned with requirements.txt
   - numpy>=1.26
@@ -31,9 +37,14 @@ dependencies:
   - selenium>=4.15
   - tqdm>=4.65
   - networkx>=3.2
-  - gseapy>=1.1
   - pydeseq2>=0.4
-  # PyPI-only / maintained fork of legacy fpdf
+  # gseapy: PyPI only (this file uses conda-forge, not bioconda, for gseapy). Conda/bioconda
+  # packages can omit gseapy.gse or lag Python versions (issue #62401 above). After create/update:
+  #   conda remove -y gseapy  (if any)
+  #   pip install --no-cache-dir --force-reinstall "gseapy>=1.1"
+  # setuptools<81: avoids pkg_resources deprecation warnings from bioservices (pydeseq2 stack).
   - pip:
+      - setuptools<81
+      - gseapy>=1.1
       - fpdf2>=2.7.0
       - mplcursors>=0.5

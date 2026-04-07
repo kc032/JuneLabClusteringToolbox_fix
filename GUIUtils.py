@@ -18,7 +18,6 @@ import os
 import shutil
 import warnings
 import GuiBackground as GB
-import gseapy as gp
 import seaborn as sns
 import matplotlib.pyplot as plt
 import networkx as nx
@@ -3497,6 +3496,24 @@ class GUIUtils:
         Enrichr gene_sets: GO BP/MF/CC 2021, KEGG_2021_Human (organism-agnostic
         block in this function), and Reactome_2022.
         '''
+        try:
+            import gseapy as gp
+        except ImportError as e:
+            messagebox.showerror(
+                title="GSEApy import failed",
+                message=(
+                    "Pathway enrichment needs gseapy with the compiled gseapy.gse module "
+                    "(from a PyPI wheel).\n\n"
+                    "Remove any conda copy, then reinstall from pip:\n"
+                    "  conda remove -y gseapy\n"
+                    "  pip uninstall -y gseapy\n"
+                    "  pip install --no-cache-dir \"gseapy>=1.1\"\n\n"
+                    "If you are on Python 3.14+, use 3.12 or 3.13 until wheels exist.\n\n"
+                    f"Error: {e}"
+                ),
+            )
+            return
+
         sns.set(style="whitegrid", context="talk")
 
         # Prompt user

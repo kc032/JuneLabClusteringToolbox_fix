@@ -1,8 +1,15 @@
 # ECCO / Clustering Toolbox — runtime dependencies only (no Jupyter/TensorFlow).
-# Targets Python 3.11 through 3.14+ with flexible lower bounds so pip can resolve wheels.
+# Targets Python 3.11–3.13 (gseapy wheels). Bioconda gseapy may not cover 3.13/3.14 yet —
+# https://github.com/bioconda/bioconda-recipes/issues/62401 — use pip for gseapy regardless.
 #
 # Recommended on Windows: use environment.yml (conda-forge) first, then optional pip extras.
 #
+# GUI (JuneLabClusteringGUI.py): uses tkinter (stdlib). Tcl/Tk is not installed via pip —
+# use the conda env (includes package `tk`) or a python.org installer that bundles Tcl/Tk.
+#
+# setuptools<81: bioservices (via pydeseq2) still uses pkg_resources; setuptools 81+ warns loudly.
+setuptools<81
+
 numpy>=1.26
 pandas>=2.0
 scipy>=1.11
@@ -19,5 +26,6 @@ selenium>=4.15
 mplcursors>=0.5
 tqdm>=4.65
 networkx>=3.2
+# gseapy: always `pip install` (wheels include gseapy.gse). Bioconda/conda builds can lag or omit gseapy.gse.
 gseapy>=1.1
 pydeseq2>=0.4

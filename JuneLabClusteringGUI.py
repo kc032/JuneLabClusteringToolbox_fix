@@ -7,6 +7,8 @@ import tkinter as tk
 import multiprocessing
 import pandas as pd
 import webbrowser
+import matplotlib
+matplotlib.use("TkAgg")
 import config
 import GuiBackground as GB
 
@@ -1486,6 +1488,7 @@ def _lb(parent, *args, col=None, row=None, colspan=1, rowspan=1, height=8):
 
 #  entry point                                                         
 if __name__ == '__main__':
+    multiprocessing.freeze_support()
     root = tk.Tk()
     root.minsize(700, 500)
     root.title("Clustering Toolbox")
